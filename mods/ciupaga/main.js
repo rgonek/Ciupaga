@@ -2,7 +2,7 @@ import {View} from 'gpui-kit';
 import {InputState} from 'gpui-base';
 import {focused,spaces,terminals,panes,theme,window,props,shared,setShared,exec,hc,readTextFile,run,layout,openOverlay,closeOverlay,nextCommand,notify} from 'herdr';
 import {discover} from './discovery.js';
-import {sourceKey,taskKey,taskArgv,platformArgv,collectArguments,migrateKeys} from './model.js';
+import {sourceKey,sourceIdentity,taskContext,taskKey,taskArgv,platformArgv,collectArguments,migrateKeys} from './model.js';
 import {contextFrom,launchArgs,reserveRun,resolveRecord,viewAction} from './runtime.js';
 import {render,launcher,outputView} from './ui.js';
 import {cacheKey,sessionServices} from './cache.js';
@@ -98,9 +98,9 @@ export default class Ciupaga extends View {
           } catch {} // A folder without Git remains a valid task project.
           }
         }
-        return {context,sources,platform,fingerprints:sources.fingerprints,resolvedAt:previous?.resolvedAt&&!force&&now-previous.resolvedAt<60000?previous.resolvedAt:now};
-        },Date.now(),force);
-        if(shared(CACHE)?.[key]?.checkedAt!==value.checkedAt){const stored={...(shared(CACHE)||{}),[key]:{context:value.context,sources:value.sources,platform:value.platform,resolvedAt:value.resolvedAt,checkedAt:value.checkedAt}};const keys=Object.keys(stored).sort((a,b)=>stored[b].checkedAt-stored[a].checkedAt);setShared(CACHE,Object.fromEntries(keys.slice(0,12).map(k=>[k,stored[k]])));}
+        return {context,sources,platform,fingerprints:sources.fingerprints,packages:sources.packages,resolvedAt:previous?.resolvedAt&&!force&&now-previous.resolvedAt<60000?previous.resolvedAt:now};
+        },Date.now(),force||!this.services.metadata.peek(key)?.packages);
+        if(shared(CACHE)?.[key]?.checkedAt!==value.checkedAt){const stored={...(shared(CACHE)||{}),[key]:{context:value.context,sources:value.sources,platform:value.platform,packages:value.packages,resolvedAt:value.resolvedAt,checkedAt:value.checkedAt}};const keys=Object.keys(stored).sort((a,b)=>stored[b].checkedAt-stored[a].checkedAt);setShared(CACHE,Object.fromEntries(keys.slice(0,12).map(k=>[k,stored[k]])));}
         if(generation!==this.generation)return;
         this.applyMetadata(value);
       } catch(error) {if(generation===this.generation)this.message=String(error.message||error);}
@@ -110,10 +110,10 @@ export default class Ciupaga extends View {
   prefs(){return shared(PREFS)||{};}
   contextKey(){return sourceKey(this.context||{},'');}
   source(){const file=this.prefs()[this.contextKey()]?.file;return this.sources.find(s=>s.file===file)||this.sources[0]||null;}
-  sourcePrefs(){const s=this.source();return s?this.prefs()[sourceKey(this.context,s.file)]||{}:{};}
+  sourcePrefs(){const s=this.source();return s?this.prefs()[sourceIdentity(this.context,s)]||{}:{};}
   patchPrefs(key,patch){setShared(PREFS,{...this.prefs(),[key]:{...this.prefs()[key],...patch}});}
   selectSource(file,cx){this.patchPrefs(this.contextKey(),{file});this.detail=null;this.openMenu=null;this.others=false;cx.notify();}
-  toggleStar(task,cx){const stars=new Set(this.sourcePrefs().stars||[]);stars.has(task.name)?stars.delete(task.name):stars.add(task.name);this.patchPrefs(sourceKey(this.context,this.source().file),{stars:[...stars]});cx.notify();}
+  toggleStar(task,cx){const stars=new Set(this.sourcePrefs().stars||[]);stars.has(task.name)?stars.delete(task.name):stars.add(task.name);this.patchPrefs(sourceIdentity(this.context,this.source()),{stars:[...stars]});cx.notify();}
   formKey(task){return taskKey(this.context,this.source(),task);}
   showDetail(task,cx) {
     if(this.detail?.name===task.name){this.detail=null;cx.notify();return;}
@@ -142,7 +142,7 @@ export default class Ciupaga extends View {
     const current=this.record(task);
     if(['starting','running','cancelling'].includes(current.state))return;
     if(task.parameters.some(p=>p.required)&&this.detail?.name!==task.name){this.showDetail(task,cx);return;}
-    const source={...this.source()},context={...this.context},key=this.formKey(task),id=uid();
+    const source={...this.source()},context=taskContext(this.context,source),key=this.formKey(task),id=uid();
     let argv;
     try {
       const saved=shared(FORMS)?.[key]||{};
@@ -257,7 +257,7 @@ export default class Ciupaga extends View {
     const origin=focused(),before=new Set(panes().map(p=>p.pane)),name=`Ciupaga ${uid()}`;
     const target=this.context?.machine?terminal.address.split('/').at(-1):terminal.address;
     const argv=['hc','read',target,'--lines','10000'];
-    if(place==='tab')run('tab.new',{space:this.context?.space,folder:this.context?.folder,name,argv});
+    if(place==='tab')run('tab.new',{space:this.context?.space,folder:terminal.cwd||this.context?.folder,name,argv});
     else if(origin?.pane)run('pane.split',{argv,pane:origin.pane,direction:place==='right'?'right':'down'});
     else {notify({title:'Ciupaga',body:'Focus a terminal pane before opening a split'});return;}
     this.services.opening.add(terminal.address);

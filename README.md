@@ -48,7 +48,7 @@ may do so. It does not install runners, trust Mise configs or change task files.
 | `GNUmakefile`, `makefile`, `Makefile` | Explicit targets and `.PHONY`; `##` descriptions | Literal extra arguments, e.g. `MODE=release` |
 | `Taskfile.yml` / `.yaml`, lowercase names and `.dist` variants | `task --list-all --json` | Extra arguments passed as `CLI_ARGS` after `--` |
 | `mise.toml`, `.mise.toml`, `.config/mise.toml` | Effective local list from Mise | Extra arguments; Mise handles its own usage schema |
-| `package.json` | `scripts` | Declared npm/pnpm/Yarn/Bun manager; npm gets its `--` separator |
+| `package.json` | `scripts`, including direct child folders in Git repositories | Declared npm/pnpm/Yarn/Bun manager; npm gets its `--` separator |
 | `composer.json` | `scripts` | Passed to `composer run-script` |
 | `deno.json` | `tasks` | Passed to `deno task` |
 
@@ -61,11 +61,19 @@ one minute. Manual Refresh forces enumeration. Concurrent views share the
 same pending read. Imported files and lockfile-only changes are picked up
 by the one-minute re-enumeration or manual Refresh.
 
+In Git repositories Ciupaga also finds `package.json` one folder below
+the current folder, such as `frontend/package.json`. The selector keeps
+that relative path and runs the script from the manifest's own folder.
+The bounded Git lookup runs at most once per minute (or on manual Refresh),
+in parallel with native runner enumeration. Generated/dependency folders
+such as `node_modules`, `bin`, `obj` and `dist` are excluded. This does not
+recursively search arbitrary directory trees or ignored package manifests.
+
 Make discovery deliberately does not evaluate the Makefile: included
 files, generated targets, target variables and pattern rules are not
 expanded. Mise merges config layers and file tasks into one source, as its
 runner does. A project with only Mise file tasks and no recognized config
-file is not detected yet. JSONC Deno configs, recursive workspace discovery,
+file is not detected yet. JSONC Deno configs, deeper recursive workspace discovery,
 Rake, Invoke and arbitrary custom runner definitions are not supported yet.
 
 Package manager selection uses `packageManager`, then `pnpm-lock.yaml`,

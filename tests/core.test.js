@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseArguments, parseMake, parseJust, parseTask, parseMise, packageTasks, taskArgv, sourceKey, groupTasks, platformArgv,collectArguments,migrateKeys} from '../mods/ciupaga/model.js';
+import {parseArguments, parseMake, parseJust, parseTask, parseMise, packageTasks, taskArgv, sourceKey, groupTasks, platformArgv,collectArguments,migrateKeys,sourceIdentity,taskContext} from '../mods/ciupaga/model.js';
 
 test('argument tokens preserve literal values, empty strings and Windows paths', () => {
   assert.deepEqual(parseArguments('--name "hello world" \'\' C:\\temp\\x "a\\b"'), ['--name','hello world','','C:\\temp\\x','a\\b']);
@@ -66,4 +66,9 @@ test('Windows folder aliases share identity and migration preserves stars, forms
   assert.deepEqual(migrated[next].stars,['build','test']);
   assert.equal(migrateKeys({[old+'\nbuild']:{at:20,id:'latest'},[next+'\nbuild']:{at:10,id:'older'}})[next+'\nbuild'].id,'latest');
   assert.equal(migrateKeys({[old+'\nclean']:{verbose:'true'}})[next+'\nclean'].verbose,'true');
+});
+test('a nested source and the same source opened directly share run and favorite identity',()=>{
+  const context={folder:'C:/repo',machine:null,space:'s1'},source={file:'ui/package.json',folder:'C:/repo/ui',identityFile:'package.json'};
+  assert.equal(sourceIdentity(context,source),sourceIdentity({...context,folder:'C:/repo/ui'},{file:'package.json'}));
+  assert.deepEqual(taskContext(context,source),{folder:'C:/repo/ui',machine:null,space:'s1'});
 });

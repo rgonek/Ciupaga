@@ -141,7 +141,13 @@ Native task enumeration may evaluate configuration and hooks.
 
 Make parsing lists explicit targets and phony names only. Mise exposes
 one effective configuration, not independently runnable config layers.
-Unknown parameter schemas use the argument field. Deno JSONC, recursive
+Find child `package.json` files one level down with bounded `git ls-files`
+pathspecs, including tracked and nonignored untracked files. Exclude
+dependency/generated folders; cache the lookup for sixty seconds and run
+it in parallel with root metadata enumeration. Show the relative manifest
+path in the selector, detect its own lockfile, and launch in its own cwd.
+Direct-folder and parent-folder views of the same manifest share identity.
+Unknown parameter schemas use the argument field. Deno JSONC, deeper recursive
 workspace scanning and arbitrary custom runners are not implemented.
 Show actual limitations instead of silently claiming complete discovery.
 

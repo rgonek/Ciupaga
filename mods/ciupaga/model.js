@@ -21,7 +21,9 @@ export function migrateKeys(store={}) {
   }
   return result;
 }
-export const taskKey=(context,source,task)=>sourceKey(context,source.file)+'\n'+task.name;
+export const taskContext=(context,source)=>({...context,folder:source.folder||context.folder});
+export const sourceIdentity=(context,source)=>sourceKey(taskContext(context,source),source.identityFile||source.file);
+export const taskKey=(context,source,task)=>sourceIdentity(context,source)+'\n'+task.name;
 
 // Arguments are literal tokens, never a shell program. Backslashes stay literal
 // (also in Windows paths); matching quotes group tokens, doubled quotes escape.
