@@ -28,6 +28,8 @@ export default class Ciupaga extends View {
       if(name==='sidebar')this.present('sidebar',cx);
       if(name==='beside')this.present('right',cx);
       if(name==='below')this.present('down',cx);
+      if(name==='sources')this.openMenu=this.openMenu==='sources'?null:'sources';
+      if(name==='views')this.openMenu=this.openMenu==='presentation'?null:'presentation';
       const colon=name.indexOf(':');
       if(colon>0) {
         const action=name.slice(0,colon),value=name.slice(colon+1),task=this.source()?.tasks.find(t=>t.name===value);
@@ -37,6 +39,10 @@ export default class Ciupaga extends View {
         if(task&&action==='star')this.toggleStar(task,cx);
         if(task&&action==='details')this.showDetail(task,cx);
         if(task&&action==='console')this.console(task,'tab',cx);
+        if(task&&action==='console-right')this.console(task,'right',cx);
+        if(task&&action==='console-up')this.console(task,'up',cx);
+        if(task&&action==='console-down')this.console(task,'down',cx);
+        if(task&&action==='hide-console')this.console(task,'hide',cx);
       }
       cx.notify();
     }});
@@ -45,7 +51,8 @@ export default class Ciupaga extends View {
   currentContext(){return contextFrom(this.options,focused(),spaces());}
   activate(cx) {
     const context=this.currentContext();
-    if(JSON.stringify(context)===JSON.stringify(this.context))return;
+    if(JSON.stringify(context)===JSON.stringify(this.requestContext))return;
+    this.requestContext=context;
     this.context=context;this.sources=[];this.detail=null;this.loading=false;this.others=false;this.generation++;
     this.reload(cx);
   }
@@ -59,13 +66,31 @@ export default class Ciupaga extends View {
   }
   reload(cx) {
     if(!this.context?.folder||this.loading)return;
-    const context={...this.context},generation=++this.generation;this.loading=true;this.message='';
+    let context={...(this.requestContext||this.context)};
+    const generation=++this.generation;this.loading=true;this.message='';
     cx.spawn(async cx=>{
       try {
         const platform=await this.platform(context);
-        const sources=await discover(context,readTextFile,exec,platform);
+        let sources=await discover(context,readTextFile,exec,platform);
+        if(!sources.length) {
+          try {
+            const root=await exec('git',['rev-parse','--show-toplevel'],{cwd:context.folder,on:context.machine});
+            const folder=root.stdout.trim();
+            if(root.code===0&&folder&&folder.replace(/\\/g,'/')!==context.folder.replace(/\\/g,'/')) {
+              const fallback={...context,folder};
+              const found=await discover(fallback,readTextFile,exec,platform);
+              if(found.length){sources=found;context=fallback;}
+            }
+          } catch {} // A folder without Git remains a valid task project.
+        }
         if(generation!==this.generation)return;
-        this.sources=sources;this.platformName=platform;
+        if(this.context.folder!==context.folder){this.detail=null;this.others=false;}
+        this.context=context;this.sources=sources;this.platformName=platform;
+        if(this.detail) {
+          const fresh=this.source()?.tasks.find(t=>t.name===this.detail.name);
+          if(!fresh||JSON.stringify(fresh.parameters)!==JSON.stringify(this.detail.parameters))this.detail=null;
+          else this.detail=fresh;
+        }
       } catch(error) {if(generation===this.generation)this.message=String(error.message||error);}
       if(generation===this.generation){this.loading=false;cx.notify();}
     });
@@ -81,6 +106,7 @@ export default class Ciupaga extends View {
   showDetail(task,cx) {
     if(this.detail?.name===task.name){this.detail=null;cx.notify();return;}
     for(const input of Object.values(this.inputs))input.release();this.inputs={};this.detail=task;
+    if(!(this.sourcePrefs().stars||[]).includes(task.name))this.others=true;
     const key=this.formKey(task),saved=shared(FORMS)?.[key]||{};
     this.flags={...saved.flags};
     for(const p of [...task.parameters,{name:'$extra'}]) {

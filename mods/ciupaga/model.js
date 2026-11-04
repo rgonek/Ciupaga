@@ -23,6 +23,10 @@ export function parseArguments(text='') {
 
 const sorted=tasks=>tasks.sort((a,b)=>a.name.localeCompare(b.name));
 const task=(name,description='',parameters=[])=>({name,description,parameters});
+function justChoices(pattern) {
+  const literal=typeof pattern==='string'?pattern:Array.isArray(pattern)&&pattern.length===1&&typeof pattern[0]==='string'?pattern[0]:null;
+  return literal&&/^[\w./-]+(?:\|[\w./-]+)+$/.test(literal)?literal.split('|'):null;
+}
 export function parseMake(text) {
   const found=new Map(); let comment='';
   for(const line of text.replace(/\\\r?\n/g,' ').split(/\r?\n/)) {
@@ -46,9 +50,10 @@ export function parseJust(data,prefix='') {
     if(r.private||key.startsWith('_'))continue;
     tasks.push(task(prefix+key,r.doc||'',(r.parameters||[]).map(p=>({
       name:p.name,required:p.default==null&&p.kind!=='star',
-      boolean:Boolean(p.flag),option:p.long?`--${p.long}`:p.short?`-${p.short}`:null,
+      boolean:Boolean(p.long||p.short)&&p.value!=null,option:p.long?`--${p.long}`:p.short?`-${p.short}`:null,
+      choices:justChoices(p.pattern),
       variadic:p.kind==='star'||p.kind==='plus',
-      hint:p.help||(p.default==null?'':`Default: ${typeof p.default==='string'?p.default:JSON.stringify(p.default)}`)
+      hint:p.help||(p.default==null?'':typeof p.default==='string'?`Default: ${p.default}`:'Default defined in justfile')
     }))));
   }
   for(const [name,module] of Object.entries(data.modules||{}))if(module&&typeof module==='object')tasks.push(...parseJust(module,prefix+name+'::'));

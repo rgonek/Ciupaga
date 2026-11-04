@@ -1,0 +1,29 @@
+# Build the application
+build:
+    node tasks.js build
+
+# Start a long-running development task
+dev:
+    node tasks.js dev
+
+# Run the test suite
+test:
+    node tasks.js test
+
+# Check code style
+lint:
+    node tasks.js lint
+
+# Greet someone using a declared positional parameter
+hello name suffix="friend":
+    @echo Hello {{name}} {{suffix}}
+
+# Verify failure feedback
+fail:
+    node tasks.js fail
+
+# Try a declared flag and a finite mode choice
+[arg('verbose', long='verbose', value='yes')]
+[arg('mode', long='mode', pattern='debug|release')]
+options verbose='no' mode='debug':
+    @echo {{verbose}} {{mode}}

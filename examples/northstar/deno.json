@@ -1,0 +1,3 @@
+{
+  "tasks": {"build": "node tasks.js build", "test": "node tasks.js test"}
+}

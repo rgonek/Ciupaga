@@ -1,0 +1,12 @@
+{
+  "name": "northstar-demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node tasks.js build",
+    "dev": "node tasks.js dev",
+    "test": "node tasks.js test",
+    "lint": "node tasks.js lint",
+    "fail": "node tasks.js fail"
+  }
+}

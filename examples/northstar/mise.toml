@@ -1,0 +1,11 @@
+[tasks.build]
+description = "Build the application"
+run = "node tasks.js build"
+
+[tasks.dev]
+description = "Start a long-running development task"
+run = "node tasks.js dev"
+
+[tasks.test]
+description = "Run the test suite"
+run = "node tasks.js test"

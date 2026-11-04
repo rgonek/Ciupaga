@@ -39,9 +39,9 @@ test('latest terminal is selected by label and creation time, not address reuse'
   const records=[{address:'t1',created_ms:10,labels:{'ciupaga.task':'key'}},{address:'t2',created_ms:20,labels:{'ciupaga.task':'key'}},{address:'t3',created_ms:30,labels:{'ciupaga.task':'other'}}];
   assert.equal(latestRun(records,'key').address,'t2');
 });
-test('context follows active space root and can be pinned when moving to a tab',()=>{
+test('context prefers the focused terminal over a stale space folder and can be pinned',()=>{
   const spaces=[{id:'s1',folder:'/root',machine:'remote'}];
-  assert.equal(contextFrom({}, {space:'s1',cwd:'/root/sub'},spaces).folder,'/root');
+  assert.equal(contextFrom({}, {space:'s1',cwd:'/root/sub'},spaces).folder,'/root/sub');
   assert.equal(contextFrom({context:{folder:'/fixed',machine:null}}, {space:'s1'},spaces).folder,'/fixed');
 });
 test('sidebar locates existing slot; portable fallback is a mod pane',()=>{

@@ -41,9 +41,10 @@ function taskRow(view,task,cx,source) {
   } else consoleItems.push({label:'Hide console · keep running',action:cx=>view.console(task,'hide',cx)});
   const row=v_flex().flex_none().rounded(7).border_1().border_color(expanded?t.input:t.border).bg(t.surface)
     .child(h_flex().min_h(57).px(6).gap(6).items_center()
-      .child(Toggle.new('star-'+task.name).pressed(starred).w(26).h(28).flex_none().rounded(5).cursor_pointer().tab_index(0)
-        .accessibility_label(`${starred?'Unstar':'Star'} ${task.name}`).tooltip(starred?'Unstar task':'Star task').text_color(starred?t.ansi3:t.dim)
-        .hover(e=>e.bg(t.hover)).on_change((_pressed,cx)=>view.toggleStar(task,cx)).child(icon('star').when(starred,e=>e.opacity(1)).when(!starred,e=>e.opacity(0.55))))
+      .child(div().id('star-tip-'+task.name).flex_none().tooltip(starred?'Unstar task':'Star task')
+        .child(Toggle.new('star-'+task.name).pressed(starred).w(26).h(28).flex_none().rounded(5).cursor_pointer().tab_index(0)
+          .accessibility_label(`${starred?'Unstar':'Star'} ${task.name}`).text_color(starred?t.ansi3:t.dim)
+          .hover(e=>e.bg(t.hover)).on_change((_pressed,cx)=>view.toggleStar(task,cx)).child(icon('star').when(starred,e=>e.opacity(1)).when(!starred,e=>e.opacity(0.55)))))
       .child(v_flex().flex_1().min_w(0).gap(2).id('task-detail-'+task.name).cursor_pointer().tooltip(task.description||task.name)
         .on_click((_e,cx)=>view.showDetail(task,cx))
         .child(text(task.name).font_semibold().truncate())
@@ -59,7 +60,8 @@ function taskRow(view,task,cx,source) {
       Checkbox.new('parameter-'+task.name+'-'+p.name).checked(Boolean(view.flags[p.name])).tab_index(0).accessibility_label(p.name)
         .on_change((checked,cx)=>{view.flags[p.name]=checked;view.saveForm();cx.notify();})
         .child(h_flex().gap(6).items_center().child(icon(view.flags[p.name]?'check':'square')).child(text(p.name))):
-      h_flex().gap(8).items_center().child(text(`${p.name}${p.required?' *':''}`).w(100).truncate()).child(field(view.inputs[p.name]))))
+      h_flex().gap(8).items_center().child(text(`${p.name}${p.required?' *':''}`).w(100).truncate()).child(p.choices?
+        menu(view,cx,'parameter-'+p.name,view.inputs[p.name].value()||'Choose…',p.choices.map(choice=>({label:choice,action:()=>{view.inputs[p.name].set_value(choice);view.saveForm();}})),p.name):field(view.inputs[p.name]))))
     .child(h_flex().gap(8).items_center().child(text('Arguments',true).w(100)).child(field(view.inputs.$extra)))
     .child(text('Literal arguments · quote values containing spaces',true).text_size(10))
     .child(text(taskArgv(source,task).join(' '),true).text_size(10).truncate()));
@@ -70,11 +72,11 @@ export function render(view,cx) {
   const matches=task=>!query||`${task.name} ${task.description}`.toLowerCase().includes(query);
   const primary=groups.primary.filter(matches),others=groups.others.filter(matches),showOthers=view.others||Boolean(query);
   const frame=v_flex().id('ciupaga-root').size_full().when(view.role==='popup',e=>e.h(500).w(520)).min_w(0).min_h(0).bg(t.background).text_color(t.foreground).text_size(12).track_focus(view.handle);
-  const sourceChoice=view.sources.length>1?menu(view,cx,'sources',source?.file||'Source',view.sources.map(s=>({label:s.file,action:cx=>view.selectSource(s.file,cx)})),'Choose task source'):text(source?.file||'Tasks',true).truncate();
+  const sourceChoice=view.sources.length>1?menu(view,cx,'sources',h_flex().gap(6).items_center().child(text(source?.file||'Source').truncate()).child(icon('chevron-down',12)),view.sources.map(s=>({label:s.file,action:cx=>view.selectSource(s.file,cx)})),'Choose task source'):text(source?.file||'Tasks',true).truncate();
   return frame
     .child(h_flex().h(44).flex_none().px(10).gap(8).items_center().border_b(1).border_color(t.border)
       .child(icon('axe',19).text_color(t.accent))
-      .child(text('Ciupaga').font_semibold()).child(div().flex_1().min_w(0).child(sourceChoice))
+      .child(text('Ciupaga').font_semibold().flex_none()).child(div().flex_1().max_w(200).min_w(0).child(sourceChoice)).child(div().flex_1())
       .child(menu(view,cx,'presentation',icon('external-link'),[
         {label:'Move to sidebar',action:cx=>view.present('sidebar',cx)},
         {label:'Open in new tab',action:cx=>view.present('tab',cx)},
@@ -85,7 +87,7 @@ export function render(view,cx) {
     .child(h_flex().px(10).py(7).gap(6).flex_none().items_center().child(field(view.search)))
     .child(text(view.context?.folder?`${view.context.folder.replace(/\\/g,'/').split('/').filter(Boolean).at(-1)}${view.context.machine?' · '+view.context.machine:''}`:'Open a project space to see its tasks',true).px(12).pb(7).truncate().tooltip(view.context?.folder||''))
     .when(Boolean(view.message),e=>e.child(text(view.message).text_color(t.ansi1).px(12).py(6)))
-    .when(Boolean(source?.error),e=>e.child(text(source.error).text_color(t.ansi1).px(12).py(6)))
+    .when(Boolean(source?.error),e=>e.child(text(source.error).text_color(t.ansi1).px(12).py(6).truncate().tooltip(source.error)))
     .child(v_flex().flex_1().min_h(0).min_w(0).overflow_y_scrollbar().px(10).pb(10).gap(5)
       .when(view.loading&&!source,e=>e.child(text('Reading project tasks…',true).p(12)))
       .when(!view.loading&&!source,e=>e.child(v_flex().gap(8).p(12).child(text('No task files found',true)).child(text('Make · Just · Task · Mise · package.json · Composer · Deno',true))))

@@ -1,0 +1,14 @@
+version: '3'
+tasks:
+  build:
+    desc: Build the application
+    cmds: [node tasks.js build]
+  dev:
+    desc: Start a long-running development task
+    cmds: [node tasks.js dev]
+  test:
+    desc: Run the test suite
+    cmds: [node tasks.js test]
+  fail:
+    desc: Verify failure feedback
+    cmds: [node tasks.js fail]
