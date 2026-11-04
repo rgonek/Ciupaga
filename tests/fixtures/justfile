@@ -1,0 +1,15 @@
+# Build the project
+build:
+    @echo built
+
+# Greet a person
+hello name suffix="friend":
+    @echo hello {{name}} {{suffix}}
+
+[private]
+hidden:
+    @echo hidden
+
+# Intentional failure for runner verification
+fail:
+    @exit 7
