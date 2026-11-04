@@ -46,8 +46,9 @@ export function parseJust(data,prefix='') {
     if(r.private||key.startsWith('_'))continue;
     tasks.push(task(prefix+key,r.doc||'',(r.parameters||[]).map(p=>({
       name:p.name,required:p.default==null&&p.kind!=='star',
+      boolean:Boolean(p.flag),option:p.long?`--${p.long}`:p.short?`-${p.short}`:null,
       variadic:p.kind==='star'||p.kind==='plus',
-      hint:p.default==null?'':`Default: ${typeof p.default==='string'?p.default:JSON.stringify(p.default)}`
+      hint:p.help||(p.default==null?'':`Default: ${typeof p.default==='string'?p.default:JSON.stringify(p.default)}`)
     }))));
   }
   for(const [name,module] of Object.entries(data.modules||{}))if(module&&typeof module==='object')tasks.push(...parseJust(module,prefix+name+'::'));
@@ -102,12 +103,15 @@ export function collectArguments(parameters,values,extra='') {
   const args=[]; let omitted=false;
   for(const p of parameters) {
     const value=values[p.name]??'';
+    if(p.boolean){if(value===true)args.push(p.option);else if(p.required)throw new Error(`Enable ${p.name}`);continue;}
     if(value==='') {
       if(p.required)throw new Error(`Enter ${p.name}`);
-      omitted=true;continue;
+      if(!p.option)omitted=true;continue;
     }
-    if(omitted)throw new Error('Fill earlier positional parameters before later ones');
-    args.push(...(p.variadic?parseArguments(value):[value]));
+    if(omitted&&!p.option)throw new Error('Fill earlier positional parameters before later ones');
+    const tokens=p.variadic?parseArguments(value):[value];
+    if(p.option)for(const token of tokens)args.push(p.option,token);
+    else args.push(...tokens);
   }
   return [...args,...parseArguments(extra)];
 }

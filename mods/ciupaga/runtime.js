@@ -25,9 +25,17 @@ export function findNode(tree,id) {
 }
 export function viewAction(place,tree,focus) {
   if(place==='tab')return {name:'tab.new',args:{mod:'ciupaga',name:'Ciupaga'}};
-  if(place==='sidebar'&&findNode(tree,'ciupaga-sidebar'))return {name:'layout.show',args:{id:'ciupaga-sidebar'}};
+  const sidebar=place==='sidebar'&&sidebarPath(tree);
+  if(sidebar)return {name:'layout.show',args:{id:sidebar.at(-1).id},path:sidebar};
   if(!focus?.pane)throw new Error('Focus a terminal pane before opening a split');
   return {name:'pane.split',args:{pane:focus.pane,direction:place==='down'?'down':'right',mod:'ciupaga'}};
+}
+export function sidebarPath(tree,path=[]) {
+  if(!tree)return null;
+  const next=[...path,tree];
+  if(tree.content?.mod==='ciupaga'&&(tree.content.props?.role||'sidebar')==='sidebar'&&tree.id)return next;
+  for(const child of tree.children||[]){const match=sidebarPath(child,next);if(match)return match;}
+  return null;
 }
 export const statusText=(state,t)=>({idle:'Ready',starting:'Starting…',cancelling:'Cancelling…',running:'Running',succeeded:'Succeeded',failed:`Failed · exit ${t?.exit_code??'?'}`,cancelled:'Cancelled',finished:'Finished · exit code unavailable',error:'Could not start'})[state]||state;
 
@@ -36,4 +44,13 @@ export function reserveRun(records,key,id,now=Date.now()) {
   const existing=records[key];
   if(existing?.phase==='starting'&&now-existing.at<35000)throw new Error('This task is already starting');
   return {...records,[key]:{id,at:now,phase:'starting',cancel:false}};
+}
+export function resolveRecord(key,entry,terminals,now=Date.now()) {
+  const terminal=latestRun(terminals,key)||entry?.final||null;
+  if(entry?.phase==='starting'&&terminal?.labels?.['ciupaga.run']!==entry.id&&now-entry.at<35000)
+    return {key,entry,terminal:null,state:entry.cancel?'cancelling':'starting'};
+  const same=entry&&terminal?.labels?.['ciupaga.run']===entry.id;
+  if(same||(!entry&&terminal))return {key,entry,terminal,state:same&&entry.cancel&&terminal.state==='live'?'cancelling':runState(terminal)};
+  if(entry?.error)return {key,entry,terminal:null,state:'error'};
+  return {key,entry,terminal:null,state:'idle'};
 }

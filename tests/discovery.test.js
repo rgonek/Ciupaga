@@ -22,3 +22,9 @@ test('Just positional forms enforce required and avoid shifting later arguments'
   assert.throws(()=>collectArguments(p,{first:'a',rest:'b'}),/earlier/);
   assert.deepEqual(collectArguments(p,{first:'a',optional:'b',rest:'"c d" e'},'--flag'),['a','b','c d','e','--flag']);
 });
+
+test('named options never shift positional parameters and booleans emit only when checked',()=>{
+  const p=[{name:'force',boolean:true,option:'--force'},{name:'mode',option:'--mode'},{name:'target',required:true}];
+  assert.deepEqual(collectArguments(p,{force:true,mode:'release',target:'app'}),['--force','--mode','release','app']);
+  assert.deepEqual(collectArguments(p,{force:false,target:'app'}),['app']);
+});

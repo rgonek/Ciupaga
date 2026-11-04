@@ -44,3 +44,9 @@ test('Windows command wrapper quotes literals rather than executing user argumen
   assert.match(argv.at(-1), /'\$\(whoami\)'/);
   assert.deepEqual(platformArgv(['just','build'],'linux'),['just','build']);
 });
+
+test('Just named options and explicit boolean flags generate their declared CLI spelling',()=>{
+  const [t]=parseJust({recipes:{build:{parameters:[{name:'force',long:'force',flag:true,value:'yes',default:'no',kind:'singular'},{name:'mode',long:'mode',default:'fast',kind:'singular'},{name:'target',default:null,kind:'singular'}]}}});
+  assert.equal(t.parameters[0].boolean,true);
+  assert.equal(t.parameters[1].option,'--mode');
+});

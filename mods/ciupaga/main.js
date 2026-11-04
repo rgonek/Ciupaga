@@ -1,0 +1,237 @@
+import {View} from 'gpui-kit';
+import {InputState,EditorState} from 'gpui-base';
+import {focused,spaces,terminals,panes,theme,window,props,shared,setShared,exec,hc,readTextFile,run,layout,openOverlay,closeOverlay,nextCommand,notify} from 'herdr';
+import {discover} from './discovery.js';
+import {sourceKey,taskKey,taskArgv,platformArgv,collectArguments} from './model.js';
+import {contextFrom,launchArgs,reserveRun,resolveRecord,viewAction} from './runtime.js';
+import {render,launcher,outputView} from './ui.js';
+
+const PREFS='ciupaga.v1.preferences',RUNS='ciupaga.v1.runs',FORMS='ciupaga.v1.forms';
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
+
+export default class Ciupaga extends View {
+  init(initial,cx) {
+    this.options=props()||initial||{};this.role=this.options.role||'popup';
+    this.context=null;this.sources=[];this.loading=false;this.message='';this.openMenu=null;this.detail=null;this.others=false;this.generation=0;this.inputs={};this.cancelSent=new Set();this.checking=new Set();this.output='';
+    this.search=InputState.new({placeholder:'Find a task…'});
+    this.search.on('change',(_e,cx)=>cx.notify());
+    this.handle=cx.focus_handle();this.menuFocus=cx.focus_handle();
+    if(this.role==='output'){this.outputEditor=EditorState.new({value:'Reading output…',readonly:true,line_numbers:false,folding:false,soft_wrap:true});this.readOutput(cx);}
+    else if(this.role!=='button')this.activate(cx);
+    cx.timer.every(1000,cx=>{this.reconcile(cx);if(this.role!=='button'&&this.role!=='output')this.activate(cx);});
+    if(this.role!=='button'&&this.role!=='output')cx.timer.every(10000,cx=>{if(!this.loading)this.reload(cx);});
+    cx.spawn(async cx=>{for(;;){const command=await nextCommand();const name=typeof command==='string'?command:command.name;
+      if(name==='focus')this.handle.focus();
+      if(name==='open')this.openPopup();
+      if(name==='refresh'&&this.role!=='button')this.reload(cx);
+      if(name==='tab')this.present('tab',cx);
+      if(name==='sidebar')this.present('sidebar',cx);
+      if(name==='beside')this.present('right',cx);
+      if(name==='below')this.present('down',cx);
+      const colon=name.indexOf(':');
+      if(colon>0) {
+        const action=name.slice(0,colon),value=name.slice(colon+1),task=this.source()?.tasks.find(t=>t.name===value);
+        if(action==='source'&&this.sources.some(s=>s.file===value))this.selectSource(value,cx);
+        if(task&&action==='run')this.start(task,cx);
+        if(task&&action==='cancel')this.cancel(task,cx);
+        if(task&&action==='star')this.toggleStar(task,cx);
+        if(task&&action==='details')this.showDetail(task,cx);
+        if(task&&action==='console')this.console(task,'tab',cx);
+      }
+      cx.notify();
+    }});
+  }
+  close() {this.search.release();this.outputEditor?.release();for(const input of Object.values(this.inputs))input.release();}
+  currentContext(){return contextFrom(this.options,focused(),spaces());}
+  activate(cx) {
+    const context=this.currentContext();
+    if(JSON.stringify(context)===JSON.stringify(this.context))return;
+    this.context=context;this.sources=[];this.detail=null;this.loading=false;this.others=false;this.generation++;
+    this.reload(cx);
+  }
+  async platform(context) {
+    if(!context.machine)return window().platform;
+    if(this.remotePlatform?.machine===context.machine)return this.remotePlatform.platform;
+    let platform;
+    try {const r=await exec('uname',['-s'],{on:context.machine});if(r.code!==0)throw new Error(r.stderr);platform=/darwin/i.test(r.stdout)?'macos':'linux';}
+    catch {const r=await exec('cmd.exe',['/d','/c','ver'],{on:context.machine});if(r.code!==0)throw new Error('Cannot determine the task machine platform');platform='windows';}
+    this.remotePlatform={machine:context.machine,platform};return platform;
+  }
+  reload(cx) {
+    if(!this.context?.folder||this.loading)return;
+    const context={...this.context},generation=++this.generation;this.loading=true;this.message='';
+    cx.spawn(async cx=>{
+      try {
+        const platform=await this.platform(context);
+        const sources=await discover(context,readTextFile,exec,platform);
+        if(generation!==this.generation)return;
+        this.sources=sources;this.platformName=platform;
+      } catch(error) {if(generation===this.generation)this.message=String(error.message||error);}
+      if(generation===this.generation){this.loading=false;cx.notify();}
+    });
+  }
+  prefs(){return shared(PREFS)||{};}
+  contextKey(){return sourceKey(this.context||{},'');}
+  source(){const file=this.prefs()[this.contextKey()]?.file;return this.sources.find(s=>s.file===file)||this.sources[0]||null;}
+  sourcePrefs(){const s=this.source();return s?this.prefs()[sourceKey(this.context,s.file)]||{}:{};}
+  patchPrefs(key,patch){setShared(PREFS,{...this.prefs(),[key]:{...this.prefs()[key],...patch}});}
+  selectSource(file,cx){this.patchPrefs(this.contextKey(),{file});this.detail=null;this.openMenu=null;this.others=false;cx.notify();}
+  toggleStar(task,cx){const stars=new Set(this.sourcePrefs().stars||[]);stars.has(task.name)?stars.delete(task.name):stars.add(task.name);this.patchPrefs(sourceKey(this.context,this.source().file),{stars:[...stars]});cx.notify();}
+  formKey(task){return taskKey(this.context,this.source(),task);}
+  showDetail(task,cx) {
+    if(this.detail?.name===task.name){this.detail=null;cx.notify();return;}
+    for(const input of Object.values(this.inputs))input.release();this.inputs={};this.detail=task;
+    const key=this.formKey(task),saved=shared(FORMS)?.[key]||{};
+    this.flags={...saved.flags};
+    for(const p of [...task.parameters,{name:'$extra'}]) {
+      if(p.boolean)continue;
+      const input=InputState.new({value:saved[p.name]||'',placeholder:p.hint|| (p.required?'Required':'Optional')});
+      input.on('change',(_e,cx)=>{this.saveForm(key);cx.notify();});
+      input.on('submit',(_e,cx)=>this.start(task,cx));this.inputs[p.name]=input;
+    }
+    cx.notify();
+  }
+  saveForm(key=this.detail&&this.formKey(this.detail)) {
+    if(!key)return;
+    const values=Object.fromEntries(Object.entries(this.inputs).map(([name,input])=>[name,input.value()]));
+    setShared(FORMS,{...(shared(FORMS)||{}),[key]:{...values,flags:this.flags||{}}});
+  }
+  record(task) {
+    const key=this.formKey(task);return resolveRecord(key,shared(RUNS)?.[key],terminals());
+  }
+  patchRun(key,id,patch) {const all=shared(RUNS)||{};if(all[key]?.id===id)setShared(RUNS,{...all,[key]:{...all[key],...patch}});}
+  start(task,cx) {
+    const current=this.record(task);
+    if(['starting','running','cancelling'].includes(current.state))return;
+    if(task.parameters.some(p=>p.required)&&this.detail?.name!==task.name){this.showDetail(task,cx);return;}
+    const source={...this.source()},context={...this.context},key=this.formKey(task),id=uid();
+    let argv;
+    try {
+      const saved=shared(FORMS)?.[key]||{};
+      const args=collectArguments(task.parameters,{...saved,...(saved.flags||{})},saved.$extra||'');
+      argv=platformArgv(taskArgv(source,task,args),this.platformName);
+      const reserved=reserveRun(shared(RUNS)||{},key,id);reserved[key].machine=context.machine;
+      setShared(RUNS,reserved);
+    } catch(error) {this.message=String(error.message||error);cx.notify();return;}
+    this.message='';cx.notify();
+    cx.spawn(async cx=>{
+      try {
+        const result=await hc(launchArgs(context,key,id,argv));
+        if(result.code!==0)throw new Error((result.stderr||result.stdout).trim()||'Could not start task');
+        const started=JSON.parse(result.stdout),address=started.address||started.terminal?.address;
+        this.patchRun(key,id,{phase:'launched',address});
+        if(shared(RUNS)?.[key]?.cancel&&address)run('terminal.kill',{terminal:address});
+      } catch(error) {this.patchRun(key,id,{phase:'error',error:String(error.message||error)});}
+      cx.notify();
+    });
+  }
+  cancel(task,cx) {
+    const record=this.record(task);
+    if(record.entry)this.patchRun(record.key,record.entry.id,{cancel:true});
+    if(record.terminal)run('terminal.kill',{terminal:record.terminal.address});
+    cx.notify();
+  }
+  reconcile(cx) {
+    // Recovers starts even if their popup closed before hc's response arrived.
+    for(const [key,entry] of Object.entries(shared(RUNS)||{})) {
+      if(entry.final||entry.error)continue;
+      const terminal=terminals().find(t=>t.labels?.['ciupaga.run']===entry.id);
+      if(terminal&&terminal.state!=='live'){this.patchRun(key,entry.id,{phase:'finished',final:terminal});continue;}
+      if(terminal&&entry.cancel&&!this.cancelSent.has(entry.id)){this.cancelSent.add(entry.id);run('terminal.kill',{terminal:terminal.address});}
+      if(terminal||this.checking.has(entry.id))continue;
+      if(!entry.address&&Date.now()-entry.at<3000)continue;
+      this.checking.add(entry.id);
+      cx.spawn(async cx=>{
+        try {
+          let address=entry.address;
+          if(!address) {
+            const r=await exec('hc',['ls','--all','--json','--label',`ciupaga.run=${entry.id}`],{on:entry.machine});
+            if(r.code!==0)throw new Error(r.stderr||'Cannot recover task');
+            const candidate=JSON.parse(r.stdout).terminals?.[0];
+            address=candidate?.address;
+            if(address&&entry.machine&&!address.includes('/'))address=entry.machine+'/'+address;
+            if(!address){if(Date.now()-entry.at>35000)this.patchRun(key,entry.id,{phase:'error',error:'Task did not appear in herdr-core. Refresh and try again.'});return;}
+            this.patchRun(key,entry.id,{address,phase:'launched'});
+          }
+          const result=await hc(['get',address,'--json']);
+          if(result.code!==0)throw new Error(result.stderr||'Task terminal is unavailable');
+          const snapshot=JSON.parse(result.stdout);
+          if(snapshot.labels?.['ciupaga.run']!==entry.id)throw new Error('Task terminal identity changed');
+          if(snapshot.state!=='live')this.patchRun(key,entry.id,{phase:'finished',final:{...snapshot,address}});
+          else if(entry.cancel)run('terminal.kill',{terminal:address});
+        } catch(error) {this.patchRun(key,entry.id,{phase:'error',error:String(error.message||error)});}
+        finally {this.checking.delete(entry.id);}
+        cx.notify();
+      });
+    }
+  }
+  openPopup() {
+    const bounds=this.buttonBounds;
+    openOverlay({mod:'ciupaga',kind:'popup',width:520,height:520,props:{role:'popup',context:this.currentContext()},...(bounds?{at:{x:bounds.x,y:bounds.y+bounds.height+4}}:{})});
+  }
+  present(place,cx) {
+    try {
+      const action=viewAction(place,layout(),focused());
+      if(action.name==='layout.show') {
+        for(let i=0;i<action.path.length;i++) {
+          const node=action.path[i];
+          if(node.id&&node.hidden)run('layout.show',{id:node.id});
+          if(node.id&&node.type==='stack'&&action.path[i+1]?.id)run('layout.select',{stack:node.id,child:action.path[i+1].id});
+        }
+        run(action.name,action.args);
+      } else run(action.name,{...action.args,space:this.context.space,props:{role:place==='sidebar'?'sidebar':'pane',context:this.context}});
+      if(this.options.overlay)closeOverlay(this.options.overlay);
+    } catch(error) {this.message=String(error.message||error);cx.notify();}
+  }
+  console(task,place,cx) {
+    const record=this.record(task),terminal=record.terminal;
+    if(!terminal)return;
+    this.openMenu=null;
+    if(place==='hide'){run('terminal.park',{terminal:terminal.address});return;}
+    if(terminal.state!=='live'){this.openOutput(task,terminal,place);return;}
+    const existing=panes().find(p=>p.terminal===terminal.address);
+    if(existing){run('tab.select',{id:existing.tab});run('pane.focus',{pane:existing.pane});this.dismiss();return;}
+    const origin=focused();
+    if(place!=='tab'&&!origin?.pane){this.message='Focus a terminal pane before opening a split';cx.notify();return;}
+    run('terminal.keep',{terminal:terminal.address,place:place==='up'?'down':place});
+    cx.spawn(async cx=>{
+      for(let i=0;i<50;i++) {
+        const pane=panes().find(p=>p.terminal===terminal.address);
+        if(pane){
+          // Keeping a console must not replace the finished task with an idle shell:
+          // the original terminal's exit code is the task's completion signal.
+          await hc(['keep',terminal.address,'--off']);
+          if(place==='tab')run('tab.rename',{id:pane.tab,name:task.name});
+          run('tab.select',{id:pane.tab});run('pane.focus',{pane:pane.pane});
+          if(place==='up')run('pane.swap',{direction:'up'});
+          this.dismiss();return;
+        }
+        await cx.sleep(100);
+      }
+      this.message='The console did not open. Try again.';cx.notify();
+    });
+  }
+  openOutput(task,terminal,place) {
+    const args={mod:'ciupaga',props:{role:'output',context:this.context,address:terminal.address,taskName:task.name}};
+    if(place==='tab')run('tab.new',{...args,space:this.context.space,name:`Output · ${task.name}`});
+    else if(focused()?.pane)run('pane.split',{...args,pane:focused().pane,direction:place==='right'?'right':'down'});
+    else {notify({title:'Ciupaga',body:'Focus a terminal pane before opening a split'});return;}
+    // Completed output is read-only; use Below/Right/Tab rather than misplacing Above.
+    this.dismiss();
+  }
+  readOutput(cx) {
+    cx.spawn(async cx=>{
+      try {const r=await hc(['read',this.options.address,'--lines','2000']);this.output=r.code===0?r.stdout:(r.stderr||'Output unavailable');}
+      catch(error){this.output=String(error.message||error);}
+      this.outputEditor.set_value(this.output);
+      cx.notify();
+    });
+  }
+  dismiss(){if(this.options.overlay)closeOverlay(this.options.overlay);}
+  menuHandle(){return this.menuFocus;}
+  render(cx) {
+    if(this.role==='button')return launcher(this,cx);
+    if(this.role==='output')return outputView(this,cx);
+    return render(this,cx);
+  }
+}

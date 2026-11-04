@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {runState,latestRun,launchArgs,contextFrom,findNode,viewAction} from '../mods/ciupaga/runtime.js';
+import {runState,latestRun,launchArgs,contextFrom,findNode,viewAction,resolveRecord,reserveRun} from '../mods/ciupaga/runtime.js';
 
 test('terminal feedback distinguishes success, failure, kill and unknown code',()=>{
   assert.equal(runState(null),'idle');
@@ -9,6 +9,24 @@ test('terminal feedback distinguishes success, failure, kill and unknown code',(
   assert.equal(runState({state:'exited',exit_code:4}),'failed');
   assert.equal(runState({state:'exited',exit_code:null}),'finished');
   assert.equal(runState({state:'exited',reason:'killed'}),'cancelled');
+});
+
+test('completed tasks retain feedback after disappearing from live terminal data',()=>{
+  const final={address:'t1',state:'finished',exit_code:7,labels:{'ciupaga.run':'one','ciupaga.task':'key'}};
+  assert.equal(resolveRecord('key',{id:'one',phase:'finished',final},[]).state,'failed');
+  assert.equal(resolveRecord('key',{id:'two',phase:'starting',at:100},[final],101).state,'starting');
+  assert.equal(resolveRecord('key',{id:'two',phase:'starting',at:100,cancel:true},[final],101).state,'cancelling');
+});
+test('launch reservations reject rapid duplicate starts but expire abandoned owners',()=>{
+  const records=reserveRun({},'key','one',100);
+  assert.throws(()=>reserveRun(records,'key','two',200),/already starting/);
+  assert.equal(reserveRun(records,'key','two',40000).key.id,'two');
+});
+test('sidebar routing works with custom layout ids and nested stacks',()=>{
+  const tree={id:'custom',type:'stack',children:[{id:'my-tasks',content:{mod:'ciupaga',props:{role:'sidebar'}}}]};
+  const action=viewAction('sidebar',tree,{});
+  assert.equal(action.args.id,'my-tasks');
+  assert.deepEqual(action.path.map(n=>n.id),['custom','my-tasks']);
 });
 test('launch labels encode full task identity and target remote core',()=>{
   const args=launchArgs({folder:'/repo',machine:'build'},'key','run123',['just','build']);
