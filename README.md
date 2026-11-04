@@ -54,8 +54,12 @@ may do so. It does not install runners, trust Mise configs or change task files.
 
 The header shows a source picker when several sources exist and the file
 name when there is only one. Each source reports its own parse or missing
-runner error. Other sources remain usable. Refresh manually, or let the
-open view reread its sources every ten seconds.
+runner error. Other sources remain usable. Reopening shows the cached list
+immediately. A shared ten-second probe checks source contents; unchanged
+native runner metadata (including unavailable tools) is reused for up to
+one minute. Manual Refresh forces enumeration. Concurrent views share the
+same pending read. Imported files and lockfile-only changes are picked up
+by the one-minute re-enumeration or manual Refresh.
 
 Make discovery deliberately does not evaluate the Makefile: included
 files, generated targets, target variables and pattern rules are not
@@ -81,6 +85,11 @@ be available on the machine; Ciupaga does not invoke Corepack automatically.
   unstarred tasks move under **Others**. Unstar everything to show the whole
   list again. Search also finds tasks inside Others. Stars and argument
   values are shared between views and saved per machine, project and source.
+  Windows path spelling and slash variants share the same preferences and runs.
+- Just positional parameters whose literal default is `true` or `false`
+  are shown as checkboxes, as are explicitly declared no-value flags.
+  Positional checkboxes pass the literal `true`/`false` argument to Just.
+  Earlier omitted parameters retain their declared literal defaults.
 - Feedback distinguishes **Starting**, **Running**, **Succeeded**,
   **Failed** with the runner's exit code, **Cancelled**, and an unavailable
   exit code. **Cancel** ends that task's terminal and children through core.
@@ -88,13 +97,19 @@ be available on the machine; Ciupaga does not invoke Corepack automatically.
   **above** or **below**. If already shown, focus it or hide it while keeping
   the process running. Closing a native terminal tab/pane normally ends its
   task; use **Hide console** to keep it running.
-- Finished tasks open a native, selectable, read-only output view in a tab,
-  beside or below. It reads up to 2,000 lines from core. Output remains
-  available while core retains that terminal; it is not a separate log archive.
+- Finished tasks open an ordinary native terminal in a tab, beside, above
+  or below. It prints up to 10,000 retained history lines using `hc read`,
+  then leaves the normal shell available. Herdr cannot reattach a finished
+  terminal; the original task is never restarted to show its output.
+  Existing consoles are focused rather than duplicated. There is no custom
+  output editor or Refresh button. Output requires core to retain the original.
 - The header's external-link menu opens Ciupaga in a **sidebar**, **new tab**,
   **beside** or **below**. Tab/pane views stay attached to their source project.
   A layout sidebar follows the selected space. With no sidebar slot, Sidebar
   opens an ordinary mod pane beside the focused terminal.
+
+Sidebar copies have a theme-colored frame; tab and pane copies stay flat
+inside their host layout. Cancel uses a native animated Lucide spinner.
 
 Task execution outlives closing the picker. If a picker disappears during
 startup, the next Ciupaga copy recovers the labeled run from core. Pending

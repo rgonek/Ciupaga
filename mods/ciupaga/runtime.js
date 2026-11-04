@@ -6,8 +6,10 @@ export function runState(t) {
   return t.exit_code===0?'succeeded':'failed';
 }
 export function latestRun(terminals,key) {
-  return terminals.filter(t=>t.labels?.['ciupaga.task']===key).sort((a,b)=>(b.created_ms||0)-(a.created_ms||0))[0]||null;
+  let latest=null;for(const terminal of terminals)if(canonicalTaskKey(terminal.labels?.['ciupaga.task'])===key&&(!latest||(terminal.created_ms||0)>(latest.created_ms||0)))latest=terminal;
+  return latest;
 }
+export function terminalIndex(terminals){const result=new Map();for(const t of terminals){const key=canonicalTaskKey(t.labels?.['ciupaga.task']),old=result.get(key);if(key&&(!old||(t.created_ms||0)>(old.created_ms||0)))result.set(key,t);}return result;}
 export function launchArgs(context,key,id,argv) {
   return ['run','--json','--bg','--no-parent','--no-notify','--cwd',context.folder,
     ...(context.machine?['--on',context.machine]:[]),'--label',`ciupaga.task=${key}`,'--label',`ciupaga.run=${id}`,'--',...argv];
@@ -46,7 +48,7 @@ export function reserveRun(records,key,id,now=Date.now()) {
   return {...records,[key]:{id,at:now,phase:'starting',cancel:false}};
 }
 export function resolveRecord(key,entry,terminals,now=Date.now()) {
-  const terminal=latestRun(terminals,key)||entry?.final||null;
+  const terminal=(terminals instanceof Map?terminals.get(key):latestRun(terminals,key))||entry?.final||null;
   if(entry?.phase==='starting'&&terminal?.labels?.['ciupaga.run']!==entry.id&&now-entry.at<35000)
     return {key,entry,terminal:null,state:entry.cancel?'cancelling':'starting'};
   const same=entry&&terminal?.labels?.['ciupaga.run']===entry.id;
@@ -54,3 +56,4 @@ export function resolveRecord(key,entry,terminals,now=Date.now()) {
   if(entry?.error)return {key,entry,terminal:null,state:'error'};
   return {key,entry,terminal:null,state:'idle'};
 }
+import {canonicalTaskKey} from './model.js';

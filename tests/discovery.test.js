@@ -28,3 +28,25 @@ test('named options never shift positional parameters and booleans emit only whe
   assert.deepEqual(collectArguments(p,{force:true,mode:'release',target:'app'}),['--force','--mode','release','app']);
   assert.deepEqual(collectArguments(p,{force:false,target:'app'}),['app']);
 });
+
+test('unchanged task sources do not respawn runners; edits, TTL and forced refresh do',async()=>{
+  let calls=0,content='first';
+  const read=async path=>path.endsWith('/justfile')?content:null;
+  const execute=async()=>{calls++;return {code:0,stdout:'{"recipes":{"build":{"parameters":[]}}}'};};
+  const context={folder:'/repo',machine:null};
+  let sources=await discover(context,read,execute,'linux',null,{now:0});assert.equal(calls,1);
+  const previous=()=>({sources,fingerprints:sources.fingerprints});
+  sources=await discover(context,read,execute,'linux',previous(),{now:10000});assert.equal(calls,1);
+  content='changed';sources=await discover(context,read,execute,'linux',previous(),{now:20000});assert.equal(calls,2);
+  sources=await discover(context,read,execute,'linux',previous(),{now:80000});assert.equal(calls,3);
+  sources=await discover(context,read,execute,'linux',previous(),{force:true,now:80001});assert.equal(calls,4);
+});
+test('missing runners are also cached and Windows source aliases are read only once',async()=>{
+  let calls=0;const reads=[];
+  const read=async path=>{reads.push(path);return /\/justfile$/i.test(path)?'build:':null;};
+  const execute=async()=>{calls++;return {code:1,stderr:'not installed'};};
+  const context={folder:'C:/repo'};
+  const sources=await discover(context,read,execute,'windows',null,{now:0});
+  await discover(context,read,execute,'windows',{sources,fingerprints:sources.fingerprints},{now:10000});
+  assert.equal(calls,1);assert.equal(reads.filter(p=>/\/justfile$/i.test(p)).length,2);
+});

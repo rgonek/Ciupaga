@@ -5,8 +5,8 @@ import {fileURLToPath} from 'node:url';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const target=join(root,'dist','ciupaga');
 const files=['README.md','RECIPE.md','LICENSE','THIRD_PARTY_NOTICES.md','preview.png','package.json','scripts/install.mjs'];
-const modFiles=['main.js','model.js','runtime.js','discovery.js','ui.js','mod.json'];
-const icons=['axe','star','terminal','ellipsis','external-link','refresh-cw','chevron-down','chevron-up','check','square'];
+const modFiles=['main.js','model.js','runtime.js','discovery.js','cache.js','ui.js','mod.json'];
+const icons=['axe','star','terminal','square-terminal','loader-circle','columns-2','rows-2','app-window','panel-right','ellipsis','external-link','refresh-cw','chevron-down','chevron-up','check','square'];
 for(const file of files)await readFile(join(root,file)); // Validate before replacing output.
 if(dirname(target)!==join(root,'dist'))throw new Error('Package destination escaped dist');
 await rm(target,{recursive:true,force:true});

@@ -1,6 +1,26 @@
 // Pure data and command construction; no Herdr or platform globals.
 export const joinPath=(root,file)=>`${root.replace(/[\\/]+$/,'')}/${file}`;
-export const sourceKey=(context,file)=>JSON.stringify([context.machine||null,context.folder,file]);
+export function sourceKey(context,file) {
+  const folder=String(context.folder||''),windows=/^[a-z]:[\\/]/i.test(folder)||folder.startsWith('\\\\');
+  let normalized=folder.replace(/\\/g,'/');
+  if(normalized.length>1&&!/^[a-z]:\/$/i.test(normalized))normalized=normalized.replace(/\/$/,'');
+  if(windows)normalized=normalized.toLowerCase();
+  return JSON.stringify([context.machine||null,normalized,windows?file.toLowerCase():file]);
+}
+export function canonicalTaskKey(key) {
+  if(typeof key!=='string')return key;
+  const separator=key.indexOf('\n'),prefix=separator<0?key:key.slice(0,separator);
+  try {const [machine,folder,file]=JSON.parse(prefix);if(typeof folder!=='string'||typeof file!=='string')return key;return sourceKey({machine,folder},file)+(separator<0?'':key.slice(separator));}catch{return key;}
+}
+export function migrateKeys(store={}) {
+  const result={};
+  for(const [oldKey,value] of Object.entries(store)) {
+    const key=canonicalTaskKey(oldKey),previous=result[key];
+    if(previous?.at!=null&&value?.at!=null&&previous.at>value.at)continue;
+    result[key]=previous?.stars&&value?.stars?{...previous,...value,stars:[...new Set([...previous.stars,...value.stars])]}:value;
+  }
+  return result;
+}
 export const taskKey=(context,source,task)=>sourceKey(context,source.file)+'\n'+task.name;
 
 // Arguments are literal tokens, never a shell program. Backslashes stay literal
@@ -50,7 +70,9 @@ export function parseJust(data,prefix='') {
     if(r.private||key.startsWith('_'))continue;
     tasks.push(task(prefix+key,r.doc||'',(r.parameters||[]).map(p=>({
       name:p.name,required:p.default==null&&p.kind!=='star',
-      boolean:Boolean(p.long||p.short)&&p.value!=null,option:p.long?`--${p.long}`:p.short?`-${p.short}`:null,
+      boolean:(Boolean(p.long||p.short)&&p.value!=null)||(!p.long&&!p.short&&['true','false'].includes(p.default)),
+      defaultBoolean:!p.long&&!p.short&&p.default==='true',defaultValue:typeof p.default==='string'?p.default:undefined,
+      option:p.long?`--${p.long}`:p.short?`-${p.short}`:null,
       choices:justChoices(p.pattern),
       variadic:p.kind==='star'||p.kind==='plus',
       hint:p.help||(p.default==null?'':typeof p.default==='string'?`Default: ${p.default}`:'Default defined in justfile')
@@ -98,25 +120,30 @@ export function platformArgv(argv,platform) {
   if(platform!=='windows')return argv;
   const quote=s=>"'"+String(s).replace(/'/g,"''")+"'";
   return ['powershell.exe','-NoLogo','-NoProfile','-NonInteractive','-Command',
-    `$ErrorActionPreference='Stop'; & ${argv.map(quote).join(' ')}; if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }; if (-not $?) { exit 1 }`];
+    `$ErrorActionPreference='Stop'; & ${argv.map(value=>quote(value===''?'""':value)).join(' ')}; if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }; if (-not $?) { exit 1 }`];
 }
 export function groupTasks(tasks,stars=[]) {
   const selected=new Set(stars),primary=tasks.filter(t=>selected.has(t.name));
   return primary.length?{primary,others:tasks.filter(t=>!selected.has(t.name))}:{primary:tasks,others:[]};
 }
 export function collectArguments(parameters,values,extra='') {
-  const args=[]; let omitted=false;
+  const args=[],pending=[];
+  const positional=tokens=>{if(pending.some(v=>v===undefined))throw new Error('Fill earlier positional parameters before later ones');args.push(...pending,...tokens);pending.length=0;};
   for(const p of parameters) {
     const value=values[p.name]??'';
-    if(p.boolean){if(value===true)args.push(p.option);else if(p.required)throw new Error(`Enable ${p.name}`);continue;}
+    if(p.boolean){
+      const checked=typeof value==='boolean'?value:value==='true'?true:value==='false'?false:Boolean(p.defaultBoolean);
+      if(p.option){if(checked)args.push(p.option);else if(p.required)throw new Error(`Enable ${p.name}`);}
+      else {const literal=String(checked);if(literal===p.defaultValue)pending.push(literal);else positional([literal]);}
+      continue;
+    }
     if(value==='') {
       if(p.required)throw new Error(`Enter ${p.name}`);
-      if(!p.option)omitted=true;continue;
+      if(!p.option)pending.push(p.defaultValue);continue;
     }
-    if(omitted&&!p.option)throw new Error('Fill earlier positional parameters before later ones');
     const tokens=p.variadic?parseArguments(value):[value];
     if(p.option)for(const token of tokens)args.push(p.option,token);
-    else args.push(...tokens);
+    else positional(tokens);
   }
   return [...args,...parseArguments(extra)];
 }

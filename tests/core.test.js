@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseArguments, parseMake, parseJust, parseTask, parseMise, packageTasks, taskArgv, sourceKey, groupTasks, platformArgv} from '../mods/ciupaga/model.js';
+import {parseArguments, parseMake, parseJust, parseTask, parseMise, packageTasks, taskArgv, sourceKey, groupTasks, platformArgv,collectArguments,migrateKeys} from '../mods/ciupaga/model.js';
 
 test('argument tokens preserve literal values, empty strings and Windows paths', () => {
   assert.deepEqual(parseArguments('--name "hello world" \'\' C:\\temp\\x "a\\b"'), ['--name','hello world','','C:\\temp\\x','a\\b']);
@@ -50,4 +50,20 @@ test('Just named options and explicit boolean flags generate their declared CLI 
   assert.equal(t.parameters[0].boolean,true);
   assert.equal(t.parameters[1].option,'--mode');
   assert.deepEqual(t.parameters[1].choices,['debug','release']);
+});
+
+test('Just string boolean defaults use checkboxes and retain positional defaults before verbose',()=>{
+  const [t]=parseJust({recipes:{clean:{parameters:[{name:'project',default:'',kind:'singular'},{name:'verbose',default:'false',kind:'singular'},{name:'restore',default:'true',kind:'singular'}]}}});
+  assert.equal(t.parameters[1].boolean,true);assert.equal(t.parameters[2].defaultBoolean,true);
+  assert.deepEqual(collectArguments(t.parameters,{verbose:true}),['','true']);
+  assert.deepEqual(collectArguments(t.parameters,{verbose:false,restore:false}),['','false','false']);
+  assert.deepEqual(collectArguments(t.parameters,{}),[]);
+});
+test('Windows folder aliases share identity and migration preserves stars, forms and latest runs',()=>{
+  const old=JSON.stringify([null,'C:\\Project','Justfile']),next=sourceKey({folder:'c:/project/'},'justfile');
+  assert.equal(sourceKey({folder:'C:\\Project'},'Justfile'),next);
+  const migrated=migrateKeys({[old]:{stars:['build']},[next]:{stars:['test']}});
+  assert.deepEqual(migrated[next].stars,['build','test']);
+  assert.equal(migrateKeys({[old+'\nbuild']:{at:20,id:'latest'},[next+'\nbuild']:{at:10,id:'older'}})[next+'\nbuild'].id,'latest');
+  assert.equal(migrateKeys({[old+'\nclean']:{verbose:'true'}})[next+'\nclean'].verbose,'true');
 });

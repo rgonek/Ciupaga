@@ -27,3 +27,7 @@ fail:
 [arg('mode', long='mode', pattern='debug|release')]
 options verbose='no' mode='debug':
     @echo {{verbose}} {{mode}}
+
+# Positional booleans remain literal Just parameters
+settings project='' verbose='false' enabled='true':
+    @echo "{{project}}" {{verbose}} {{enabled}}

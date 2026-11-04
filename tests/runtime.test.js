@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {runState,latestRun,launchArgs,contextFrom,findNode,viewAction,resolveRecord,reserveRun} from '../mods/ciupaga/runtime.js';
+import {runState,latestRun,launchArgs,contextFrom,findNode,viewAction,resolveRecord,reserveRun,terminalIndex} from '../mods/ciupaga/runtime.js';
+import {sourceKey} from '../mods/ciupaga/model.js';
 
 test('terminal feedback distinguishes success, failure, kill and unknown code',()=>{
   assert.equal(runState(null),'idle');
@@ -38,6 +39,13 @@ test('launch labels encode full task identity and target remote core',()=>{
 test('latest terminal is selected by label and creation time, not address reuse',()=>{
   const records=[{address:'t1',created_ms:10,labels:{'ciupaga.task':'key'}},{address:'t2',created_ms:20,labels:{'ciupaga.task':'key'}},{address:'t3',created_ms:30,labels:{'ciupaga.task':'other'}}];
   assert.equal(latestRun(records,'key').address,'t2');
+});
+test('live terminals launched before key migration remain visible through Windows aliases',()=>{
+  const old=JSON.stringify([null,'C:\\Project','Justfile'])+'\nbuild';
+  const key=sourceKey({folder:'c:/project'},'justfile')+'\nbuild';
+  const terminal={address:'t1',state:'live',created_ms:10,labels:{'ciupaga.task':old,'ciupaga.run':'one'}};
+  assert.equal(latestRun([terminal],key),terminal);
+  assert.equal(resolveRecord(key,{id:'one',phase:'launched'},terminalIndex([terminal])).state,'running');
 });
 test('context prefers the focused terminal over a stale space folder and can be pinned',()=>{
   const spaces=[{id:'s1',folder:'/root',machine:'remote'}];

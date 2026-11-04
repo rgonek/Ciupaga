@@ -9,8 +9,9 @@ const cwd=fileURLToPath(new URL('../examples/northstar/',import.meta.url));
 const platform=process.platform==='win32'?'windows':'linux';
 function execute(argv) {
   const [command,...args]=platformArgv(argv,platform);
-  return spawnSync(command,args,{cwd,encoding:'utf8',timeout:30000});
+  return spawnSync(command,args,{cwd,encoding:'utf8',timeout:60000});
 }
+function unavailable(result){return result.error?.code==='ENOENT'||/is not recognized as the name|command not found/i.test(result.stderr||'');}
 for(const [kind,command,enumeration,parse,file] of [
   ['just','just',['--justfile','justfile','--dump','--dump-format','json'],parseJust,'justfile'],
   ['task',process.env.CIUPAGA_TASK_BIN||'task',['--taskfile','Taskfile.yml','--list-all','--json'],parseTask,'Taskfile.yml'],
@@ -18,7 +19,8 @@ for(const [kind,command,enumeration,parse,file] of [
 ]) {
   test(`${kind}: real runner metadata and build invocation`,t=>{
     const probe=execute([command,'--version']);
-    if(probe.status!==0){t.skip(`${command} is not installed`);return;}
+    if(unavailable(probe)){t.skip(`${command} is not installed`);return;}
+    assert.equal(probe.status,0,probe.error?.message||probe.stderr);
     const list=execute([command,...enumeration]);assert.equal(list.status,0,list.stderr);
     const tasks=parse(JSON.parse(list.stdout));assert.ok(tasks.some(t=>t.name==='build'));
     const argv=taskArgv({kind,file},{name:'build'});argv[0]=command;
@@ -30,11 +32,15 @@ for(const [kind,command,enumeration,parse,file] of [
       const optionArgs=collectArguments(option.parameters,{verbose:true,mode:'release'});
       const result=execute(taskArgv({kind,file},option,optionArgs));
       assert.equal(result.status,0,result.stderr);assert.match(result.stdout,/yes release/);
+      const settings=tasks.find(t=>t.name==='settings');
+      const positional=execute(taskArgv({kind,file},settings,collectArguments(settings.parameters,{verbose:true})));
+      assert.equal(positional.status,0,positional.stderr);assert.match(positional.stdout,/true true/);
     }
   });
 }
 test('Make: real explicit target execution',t=>{
-  if(execute(['make','--version']).status!==0){t.skip('make is not installed');return;}
+  const probe=execute(['make','--version']);if(unavailable(probe)){t.skip('make is not installed');return;}
+  assert.equal(probe.status,0,probe.error?.message||probe.stderr);
   const tasks=parseMake(readFileSync(new URL('../examples/northstar/Makefile',import.meta.url),'utf8'));
   assert.equal(tasks.length,5);
   const result=execute(taskArgv({kind:'make',file:'Makefile'},tasks.find(t=>t.name==='build')));

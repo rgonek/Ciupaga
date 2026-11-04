@@ -25,9 +25,17 @@ manager, plus a source-specific discovery limitation when relevant.
 
 Expanded rows show the description, startup error, declared Just
 parameters and an optional extra-arguments input. Declared boolean flags
-are native checkboxes. Simple `a|b` Just patterns become choices. Other
+and literal positional defaults `true`/`false` are native checkboxes.
+Positional checkboxes pass literal values and preserve earlier defaults.
+Simple `a|b` Just patterns become choices. Other
 parameters are native text inputs; defaults are hints and are left to the
 runner when omitted. A short command preview identifies the invocation.
+
+Use a neutral theme color for the axe, a square-terminal console icon,
+and Lucide app-window/columns-2/rows-2/panel-right icons in placement menus.
+Cancel and Cancelling show a native rotating loader-circle, never a JS
+animation timer. Add an 8px rounded theme-border frame only to sidebar
+copies; keep pane and tab copies flat inside their host's own frame.
 
 No custom fonts, hard-coded color palette, window frame or replacement
 tab bar. Use native `gpui-base` controls and bundled Lucide SVGs, tinted
@@ -40,7 +48,12 @@ Discover task sources in the focused terminal's folder, falling back to
 the space folder and then the Git repository root when no sources exist. Use explicit
 context props pinning tab and pane copies to a project. Offer Make, Just,
 Task, Mise, package scripts, Composer and Deno as described in README.
-Read sources on opening, refresh, context change and every ten seconds.
+Hydrate cached metadata immediately on opening/context change. Share one
+in-flight request between copies. Probe source contents every ten seconds;
+reuse unchanged runner metadata, including missing-runner errors, for up
+to sixty seconds. Manual Refresh forces enumeration. Imported-file and
+lockfile-only changes are refreshed at the sixty-second boundary. Do not
+serialize raw task source text into persistent shared state.
 Keep errors local to a source; do not replace another usable list with a
 missing-runner error. Discard stale asynchronous discovery results after
 the context changes.
@@ -66,11 +79,12 @@ can recover a launch whose response was interrupted.
 
 For a live task, the console menu opens a new tab, right pane, upper pane
 or lower pane. Focus an existing console rather than duplicating it.
-After opening, disable core keep-shell replacement so the task retains
-its own exit result. Hide via terminal parking, preserving the process.
-For a finished task, open a native read-only editor with up to 2,000 lines
-of retained output, in a new tab, right pane or lower pane. It supports
-selection/copy and refresh. Do not rerun a task just to show its output.
+Hide via terminal parking, preserving the process.
+For a finished task, open a normal native console running `hc read` with
+up to 10,000 history lines. The user's shell remains available afterward.
+Support tab/right/up/down and track the viewer's backing pane so another
+click focuses it instead of duplicating it. Never rerun the original task
+to show output. No custom editor or output Refresh control.
 
 The presentation menu opens Ciupaga in a tab, beside, below or in the
 layout's sidebar. Find sidebar blocks by `content.mod` and `props.role`,
@@ -87,18 +101,20 @@ preference stores. `ui.js` renders all roles: popup, button, sidebar/pane,
 and finished output. `model.js` contains pure metadata normalization,
 argument tokenization, manager selection, grouping and argv construction.
 `discovery.js` reads recognized sources and enumerates native runners.
+`cache.js` coalesces requests, retains source fingerprints in memory and
+coordinates run checks, cancellations and console openings across copies.
 `runtime.js` resolves contexts, run states, reservations and layout routes.
 
 Use `View`, `div`, `svg`, `Button`, `Toggle`, `Checkbox`, `Popover`,
-`InputState`/`Input` and `EditorState`/`Editor`. Create focus handles and
-input/editor state in init or handlers, never during render. Reuse theme
+`InputState`/`Input`. Create focus handles and
+input state in init or handlers, never during render. Reuse theme
 colors; no HTML/CSS/Node APIs in runtime code.
 
 Herdr APIs: `focused`, `spaces`, `panes`, `terminals`, `window`, `theme`,
 `props`, `shared`/`setShared`, `readTextFile`, `exec`, `hc`, `nextCommand`,
 `openOverlay`/`closeOverlay`, `notify`, and `run`. Core operations are
 `run --bg --no-parent --no-notify`, labeled task/run IDs, `get`, `ls` with
-an exact run label, `read`, and `keep --off`. Layout operations are
+an exact run label and `read`. Layout operations are
 `layout.show`, `layout.select`, `tab.new`, `tab.rename`, `tab.select`,
 `pane.split`, `pane.focus`, `pane.swap`, `terminal.keep`, `terminal.park`
 and `terminal.kill`.
@@ -129,10 +145,10 @@ Show actual limitations instead of silently claiming complete discovery.
 
 `cx` belongs to its callback; never retain one. Async work must check its
 generation before publishing discovery. Terminal keeping is asynchronous:
-wait for its actual pane before naming/focusing it. Disable shell keep
-after opening so completion remains observable. Upper live consoles use
-a lower split followed by a native pane swap. Finished output supports
-tab/right/down only. Output is core retention, not a permanent log file.
+wait for its actual pane before naming/focusing it. Core keeps normal
+coded exits final, so no extra keep-off command is needed when opening.
+Upper consoles use a lower split followed by a native pane swap. Finished
+output uses a native console too. Output is core retention, not a permanent log file.
 
 A cancellation requested during popup teardown needs another live copy
 or the next opening to reconcile it. Preserve this pending intent in
