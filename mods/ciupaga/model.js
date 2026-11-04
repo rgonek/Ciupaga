@@ -120,9 +120,22 @@ export function taskArgv(source,t,args=[]) {
 }
 export function platformArgv(argv,platform) {
   if(platform!=='windows')return argv;
+  if(argv.some(value=>/[\0\r\n]/.test(value)))throw new Error('Windows task arguments cannot contain NUL or line breaks');
   const quote=s=>"'"+String(s).replace(/'/g,"''")+"'";
+  // Build the native CRT command line ourselves: Windows PowerShell 5's
+  // native argument binder otherwise strips embedded quotes and empty values.
+  const native=s=>'"'+String(s).replace(/(\\*)"/g,'$1$1\\"').replace(/(\\+)$/,'$1$1')+'"';
+  // Batch shims forward %* through a second cmd parsing pass.
+  const batch=s=>native(s).replace(/[ !%^&()<>|"]/g,'^$&').replace(/[ !%^&()<>|"]/g,'^$&');
+  const args=argv.slice(1);
   return ['powershell.exe','-NoLogo','-NoProfile','-NonInteractive','-Command',
-    `$ErrorActionPreference='Stop'; & ${argv.map(value=>quote(value===''?'""':value)).join(' ')}; if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }; if (-not $?) { exit 1 }`];
+    `$ErrorActionPreference='Stop'; $program=(Get-Command ${quote(argv[0])} -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source; $info=New-Object System.Diagnostics.ProcessStartInfo; $info.UseShellExecute=$false; if ($program -match '\\.(cmd|bat)$') { $info.FileName=$env:ComSpec; $info.Arguments='/d /v:off /s /c ""'+$program+${quote('" '+args.map(batch).join(' ')+'"')} } else { $info.FileName=$program; $info.Arguments=${quote(args.map(native).join(' '))} }; $process=[System.Diagnostics.Process]::Start($info); $process.WaitForExit(); exit $process.ExitCode`];
+}
+export function platformFromUname(value) {
+  if(/mingw|msys|cygwin/i.test(value))return 'windows';
+  if(/darwin/i.test(value))return 'macos';
+  if(/linux/i.test(value))return 'linux';
+  throw new Error(`Unrecognized remote platform: ${value.trim()}`);
 }
 export function groupTasks(tasks,stars=[]) {
   const selected=new Set(stars),primary=tasks.filter(t=>selected.has(t.name));

@@ -2,7 +2,7 @@ import {View} from 'gpui-kit';
 import {InputState} from 'gpui-base';
 import {focused,spaces,terminals,panes,theme,window,props,shared,setShared,exec,hc,readTextFile,run,layout,openOverlay,closeOverlay,nextCommand,notify} from 'herdr';
 import {discover} from './discovery.js';
-import {sourceKey,sourceIdentity,taskContext,taskKey,taskArgv,platformArgv,collectArguments,migrateKeys} from './model.js';
+import {sourceKey,sourceIdentity,taskContext,taskKey,taskArgv,platformArgv,platformFromUname,collectArguments,migrateKeys} from './model.js';
 import {contextFrom,launchArgs,reserveRun,resolveRecord,viewAction} from './runtime.js';
 import {render,launcher,outputView} from './ui.js';
 import {cacheKey,metadataContext,sessionServices} from './cache.js';
@@ -63,7 +63,7 @@ export default class Ciupaga extends View {
     if(!context.machine)return window().platform;
     if(this.remotePlatform?.machine===context.machine)return this.remotePlatform.platform;
     let platform;
-    try {const r=await exec('uname',['-s'],{on:context.machine});if(r.code!==0)throw new Error(r.stderr);platform=/darwin/i.test(r.stdout)?'macos':'linux';}
+    try {const r=await exec('uname',['-s'],{on:context.machine});if(r.code!==0)throw new Error(r.stderr);platform=platformFromUname(r.stdout);}
     catch {const r=await exec('cmd.exe',['/d','/c','ver'],{on:context.machine});if(r.code!==0)throw new Error('Cannot determine the task machine platform');platform='windows';}
     this.remotePlatform={machine:context.machine,platform};return platform;
   }

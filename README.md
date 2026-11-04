@@ -176,8 +176,14 @@ npm run package
 `verify-core.mjs` explicitly starts the harmless example tasks and cleans
 up its own test terminals. `examples/northstar/` includes Make, Just, Task,
 Mise and package-script examples; `dev` runs until cancelled and `fail`
-intentionally fails. CI is configured for Windows, macOS and Linux. The
-public package in `dist/ciupaga/` includes only the mod, installer, license,
+intentionally fails. CI installs Just, Task and Mise on Windows, macOS and Linux;
+missing runners fail the CI checks instead of skipping their smoke tests.
+Set `CIUPAGA_REQUIRE_RUNNERS=1` to require them locally as well.
+Windows launches native applications and batch shims without invoking PowerShell
+script shims or changing execution policy. Arguments containing NUL or line breaks
+are rejected on Windows; ordinary quotes, spaces and shell punctuation stay literal.
+Unix file aliases are compared by filesystem identity, including on case-sensitive APFS.
+The public package in `dist/ciupaga/` includes only the mod, installer, license,
 recipe, documentation and preview. It does not include local state or tests.
 
 Runner references: [Just parameters](https://just.systems/man/en/recipe-parameters.html),

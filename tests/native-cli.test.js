@@ -11,7 +11,11 @@ function execute(argv) {
   const [command,...args]=platformArgv(argv,platform);
   return spawnSync(command,args,{cwd,encoding:'utf8',timeout:60000});
 }
-function unavailable(result){return result.error?.code==='ENOENT'||/is not recognized as the name|command not found/i.test(result.stderr||'');}
+function unavailable(result){
+  const missing=result.error?.code==='ENOENT'||/is not recognized as the name|command not found/i.test(result.stderr||'');
+  if(missing&&process.env.CIUPAGA_REQUIRE_RUNNERS)assert.fail('Required native runner is missing: '+(result.stderr||result.error?.message));
+  return missing;
+}
 for(const [kind,command,enumeration,parse,file] of [
   ['just','just',['--justfile','justfile','--dump','--dump-format','json'],parseJust,'justfile'],
   ['task',process.env.CIUPAGA_TASK_BIN||'task',['--taskfile','Taskfile.yml','--list-all','--json'],parseTask,'Taskfile.yml'],

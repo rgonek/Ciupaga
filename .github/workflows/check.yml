@@ -6,10 +6,21 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      CIUPAGA_REQUIRE_RUNNERS: '1'
+      MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}/examples/northstar
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - uses: jdx/mise-action@v5
+        with:
+          version: 2026.11.0
+          tool_versions: |
+            just 1.59.0
+            task 3.54.0
+      - if: runner.os == 'Windows'
+        run: choco install make --yes --no-progress
       - run: npm test
       - run: npm run package

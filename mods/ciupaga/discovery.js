@@ -22,8 +22,18 @@ export async function discover(context,read,execute,platform,previous=null,{forc
   const fingerprints=new Map(),work=[];
   async function append(entries) {
   const files=await Promise.all(entries.map(async([file,kind])=>({file,kind,text:await read(joinPath(context.folder,file),{on:context.machine})})));
+  const physical=[];
   for(const {file,kind,text} of files) {
     if(text==null)continue;
+    // Probe identity rather than guessing APFS case sensitivity from the OS.
+    const alias=physical.find(other=>other.toLowerCase()===file.toLowerCase());
+    if(alias&&platform!=='windows') {
+      try {
+        const same=await execute('sh',['-c','test "$1" -ef "$2"','ciupaga',alias,file],{cwd:context.folder,on:context.machine});
+        if(same.code===0)continue;
+      } catch {} // Keep both files if identity cannot be determined.
+    }
+    physical.push(file);
     const id=platform==='windows'?file.toLowerCase():file;
     // Windows aliases point to the same physical file. Mise layers are one effective config.
     if(seen.has(id)||(kind==='mise'&&sources.some(s=>s.kind==='mise')))continue;
