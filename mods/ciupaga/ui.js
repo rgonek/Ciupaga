@@ -73,9 +73,10 @@ export function render(view,cx) {
   const matches=task=>!query||`${task.name} ${task.description}`.toLowerCase().includes(query);
   const primary=groups.primary.filter(matches),others=groups.others.filter(matches),showOthers=view.others||Boolean(query);
   const frame=v_flex().id('ciupaga-root').size_full().when(view.role==='popup',e=>e.h(500).w(520)).when(view.role==='sidebar',e=>e.border_1().border_color(t.border).rounded(8)).min_w(0).min_h(0).bg(t.background).text_color(t.foreground).text_size(12).track_focus(view.handle);
+  const embedded=view.role==='pane'||view.role==='tab';
   const sourceChoice=view.sources.length>1?menu(view,cx,'sources',h_flex().gap(6).items_center().child(text(source?.file||'Source').truncate()).child(icon('chevron-down',12)),view.sources.map(s=>({label:s.file,action:cx=>view.selectSource(s.file,cx)})),'Choose task source'):text(source?.file||'Tasks',true).truncate();
   return frame
-    .child(h_flex().h(44).flex_none().px(10).gap(8).items_center().border_b(1).border_color(t.border)
+    .when(!embedded,e=>e.child(h_flex().h(44).flex_none().px(10).gap(8).items_center().border_b(1).border_color(t.border)
       .child(icon('axe',19).text_color(t.muted))
       .child(text('Ciupaga').font_semibold().flex_none()).child(div().flex_1().max_w(200).min_w(0).child(sourceChoice)).child(div().flex_1())
       .child(menu(view,cx,'presentation',icon('external-link'),[
@@ -84,8 +85,11 @@ export function render(view,cx) {
         {label:'Open beside',icon:'columns-2',action:cx=>view.present('right',cx)},
         {label:'Open below',icon:'rows-2',action:cx=>view.present('down',cx)}
       ],'Choose where to show Ciupaga'))
-      .child(button('refresh',icon('refresh-cw'),(_e,cx)=>view.reload(cx,true),{tip:'Refresh tasks',disabled:view.loading}).w(27).px(0)))
-    .child(h_flex().px(10).py(7).gap(6).flex_none().items_center().child(field(view.search)))
+      .child(button('refresh',icon('refresh-cw'),(_e,cx)=>view.reload(cx,true),{tip:'Refresh tasks',disabled:view.loading}).w(27).px(0))))
+    .child(h_flex().px(10).py(7).gap(6).flex_none().items_center()
+      .when(embedded,e=>e.child(div().flex_none().max_w(180).min_w(0).child(sourceChoice)))
+      .child(field(view.search))
+      .when(embedded,e=>e.child(button('refresh',icon('refresh-cw'),(_e,cx)=>view.reload(cx,true),{tip:'Refresh tasks',disabled:view.loading}).w(27).px(0))))
     .child(text(view.context?.folder?`${view.context.folder.replace(/\\/g,'/').split('/').filter(Boolean).at(-1)}${view.context.machine?' · '+view.context.machine:''}`:'Open a project space to see its tasks',true).px(12).pb(7).truncate().tooltip(view.context?.folder||''))
     .when(Boolean(view.message),e=>e.child(text(view.message).text_color(t.ansi1).px(12).py(6)))
     .when(Boolean(source?.error),e=>e.child(text(source.error).text_color(t.ansi1).px(12).py(6).truncate().tooltip(source.error)))

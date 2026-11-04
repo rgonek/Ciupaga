@@ -36,6 +36,8 @@ and Lucide app-window/columns-2/rows-2/panel-right icons in placement menus.
 Cancel and Cancelling show a native rotating loader-circle, never a JS
 animation timer. Add an 8px rounded theme-border frame only to sidebar
 copies; keep pane and tab copies flat inside their host's own frame.
+In pane/tab copies omit the title, axe and presentation header entirely.
+Keep the source selector or filename and Refresh in the search row instead.
 
 No custom fonts, hard-coded color palette, window frame or replacement
 tab bar. Use native `gpui-base` controls and bundled Lucide SVGs, tinted

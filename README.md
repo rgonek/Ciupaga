@@ -109,7 +109,9 @@ be available on the machine; Ciupaga does not invoke Corepack automatically.
   opens an ordinary mod pane beside the focused terminal.
 
 Sidebar copies have a theme-colored frame; tab and pane copies stay flat
-inside their host layout. Cancel uses a native animated Lucide spinner.
+inside their host layout. In tabs and panes, the title/presentation header
+is omitted; the source selector or filename and Refresh sit beside search.
+Cancel uses a native animated Lucide spinner.
 
 Task execution outlives closing the picker. If a picker disappears during
 startup, the next Ciupaga copy recovers the labeled run from core. Pending
