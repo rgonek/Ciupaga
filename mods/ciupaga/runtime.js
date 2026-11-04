@@ -15,7 +15,7 @@ export function launchArgs(context,key,id,argv) {
 export function contextFrom(props,focus,spaces) {
   if(props.context?.folder)return props.context;
   const space=spaces.find(s=>s.id===focus?.space)||spaces.find(s=>s.active);
-  return {folder:space?.folder||focus?.cwd||'',machine:space?.machine||null,space:space?.id||focus?.space};
+  return {folder:focus?.cwd||space?.folder||'',machine:space?.machine||null,space:space?.id||focus?.space};
 }
 export function findNode(tree,id) {
   if(!tree)return null;
