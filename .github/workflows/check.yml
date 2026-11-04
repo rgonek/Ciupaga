@@ -1,17 +1,21 @@
 name: Check
 on: [push, pull_request]
+permissions:
+  contents: read
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     env:
       CIUPAGA_REQUIRE_RUNNERS: '1'
       MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}/examples/northstar
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - uses: jdx/mise-action@v5
