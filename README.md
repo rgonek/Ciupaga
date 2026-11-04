@@ -1,11 +1,32 @@
-# Ciupaga
+# Ciupaga - Tasks
 
-Run your project's tasks from Herdr. Open a compact task picker, star the
-commands you use most, and follow each run through to success, failure or
-cancellation. Keep the picker in a sidebar, a tab or a pane, and open an
-interactive console only when you need it.
+Run your project's tasks in [Herdr](https://herdr.dev). Star the commands you
+reach for every day and see how each run turns out. Open a console when you
+want the output.
 
-![Ciupaga](preview.png)
+![Ciupaga: project tasks beside a sheep and highlander's axe in the Tatras](preview.png)
+
+*Native Ciupaga controls with sample project data, set against an illustration.*
+
+A ciupaga is a highlander's axe and walking stick, carried along for the work
+ahead. This one keeps your project's commands close at hand. It belongs to the
+same flock as [Juhas](https://github.com/rgonek/Juhas), for code review,
+[Kolczyk](https://github.com/rgonek/Kolczyk), for space icons, and
+[Sakwa](https://github.com/rgonek/Sakwa), for notes.
+
+## A few commands, used often
+
+Keep build, test and dev at the top of the list. Tasks run in the background,
+so you can close the picker and carry on. Come back to check the result, stop
+a running task, or open its console beside your work. The picker fits in a
+popover, sidebar, tab or pane.
+
+![Native task picker showing successful, running and failed example tasks](docs/images/tasks.png)
+
+Switch between your project's task files from the source menu. Tasks with
+declared Just parameters get an argument form, including checkboxes for flags.
+
+![Native argument form for a Just task](docs/images/arguments.png)
 
 Ciupaga uses Herdr's native `gpui-base` components and theme colors, with
 Lucide icons. It brings no custom window layout, web view or theme. The
@@ -189,3 +210,9 @@ recipe, documentation and preview. It does not include local state or tests.
 Runner references: [Just parameters](https://just.systems/man/en/recipe-parameters.html),
 [Task CLI and JSON format](https://taskfile.dev/docs/reference/cli),
 [Mise task discovery](https://mise.jdx.dev/tasks/task-discovery.html).
+
+## License
+
+Ciupaga is licensed under [Apache 2.0](LICENSE). Bundled Lucide icons retain their
+[upstream license](mods/ciupaga/icons/LICENSE-Lucide.txt).
+See [third-party notices](THIRD_PARTY_NOTICES.md).

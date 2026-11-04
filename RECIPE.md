@@ -1,9 +1,7 @@
-# Ciupaga — project tasks inside Herdr
+# Ciupaga - Tasks
 
-Ciupaga puts your project's everyday commands one click away. Pick a task
-file, star your regular tasks, and run, watch or cancel them without
-leaving Herdr. Open the picker as a popover, keep it in a sidebar or move
-it into a tab or pane; open a full console only when you need one.
+Run your project's tasks in Herdr. Star your everyday commands, check each
+run's result, and open a console when you need the output.
 
 ![Ciupaga](preview.png)
 
@@ -131,7 +129,9 @@ platform on that machine rather than assuming it matches the client.
 and `--home`, refuses unknown existing folders and requires an ownership
 marker for `--update`. It does not change layouts or key bindings.
 `scripts/package.mjs` stages an allowlisted public folder. Include the
-Lucide license and an actual privacy-clean native screenshot as preview.
+Lucide license and a privacy-clean preview. Marketing previews may combine
+an illustration with a real native screenshot. Label synthetic sample data
+in the README; never paint or generate the interface itself.
 
 ## Watch out
 
