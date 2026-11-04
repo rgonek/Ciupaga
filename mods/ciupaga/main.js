@@ -5,7 +5,7 @@ import {discover} from './discovery.js';
 import {sourceKey,sourceIdentity,taskContext,taskKey,taskArgv,platformArgv,collectArguments,migrateKeys} from './model.js';
 import {contextFrom,launchArgs,reserveRun,resolveRecord,viewAction} from './runtime.js';
 import {render,launcher,outputView} from './ui.js';
-import {cacheKey,sessionServices} from './cache.js';
+import {cacheKey,metadataContext,sessionServices} from './cache.js';
 
 const PREFS='ciupaga.v1.preferences',RUNS='ciupaga.v1.runs',FORMS='ciupaga.v1.forms',CACHE='ciupaga.v2.metadata',CONSOLES='ciupaga.v2.consoles';
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
@@ -21,7 +21,6 @@ export default class Ciupaga extends View {
     this.handle=cx.focus_handle();this.menuFocus=cx.focus_handle();
     if(this.role!=='button'&&this.role!=='output')this.activate(cx);
     cx.timer.every(1000,cx=>{this.reconcile(cx);if(this.role!=='button'&&this.role!=='output')this.activate(cx);});
-    if(this.role!=='button'&&this.role!=='output')cx.timer.every(10000,cx=>{if(!this.loading)this.reload(cx);});
     cx.spawn(async cx=>{for(;;){const command=await nextCommand();const name=typeof command==='string'?command:command.name;
       if(name==='focus')this.handle.focus();
       if(name==='open')this.openPopup();
@@ -70,7 +69,7 @@ export default class Ciupaga extends View {
   }
   applyMetadata(value) {
     if(this.context?.folder!==value.context.folder){this.detail=null;this.others=false;}
-    this.context=value.context;this.sources=value.sources;this.platformName=value.platform;
+    this.context=metadataContext(this.requestContext,value.context);this.sources=value.sources;this.platformName=value.platform;
     if(this.detail){const fresh=this.source()?.tasks.find(t=>t.name===this.detail.name);if(!fresh||JSON.stringify(fresh.parameters)!==JSON.stringify(this.detail.parameters))this.detail=null;else this.detail=fresh;}
   }
   reload(cx,force=false) {
@@ -81,12 +80,12 @@ export default class Ciupaga extends View {
       try {
         const value=await this.services.metadata.load(key,async(previous)=>{
         const now=Date.now();
-        let context={...(previous&&!force&&now-previous.resolvedAt<60000?previous.context:request)};
+        let context={...(previous&&!force?previous.context:request)};
         const platform=previous?.platform||await this.platform(context);
         const same=previous?.context.folder===context.folder;
         let sources=await discover(context,readTextFile,exec,platform,same?previous:null,{force,now});
         if(!sources.length) {
-          if(!previous||force||now-previous.resolvedAt>=60000){
+          if(!previous||force){
           try {
             const root=await exec('git',['rev-parse','--show-toplevel'],{cwd:context.folder,on:context.machine});
             const folder=root.stdout.trim();
@@ -98,9 +97,9 @@ export default class Ciupaga extends View {
           } catch {} // A folder without Git remains a valid task project.
           }
         }
-        return {context,sources,platform,fingerprints:sources.fingerprints,packages:sources.packages,resolvedAt:previous?.resolvedAt&&!force&&now-previous.resolvedAt<60000?previous.resolvedAt:now};
-        },Date.now(),force||!this.services.metadata.peek(key)?.packages);
-        if(shared(CACHE)?.[key]?.checkedAt!==value.checkedAt){const stored={...(shared(CACHE)||{}),[key]:{context:value.context,sources:value.sources,platform:value.platform,packages:value.packages,resolvedAt:value.resolvedAt,checkedAt:value.checkedAt}};const keys=Object.keys(stored).sort((a,b)=>stored[b].checkedAt-stored[a].checkedAt);setShared(CACHE,Object.fromEntries(keys.slice(0,12).map(k=>[k,stored[k]])));}
+        return {context,sources,platform,fingerprints:sources.fingerprints,packages:sources.packages};
+        },Date.now(),force);
+        if(shared(CACHE)?.[key]?.checkedAt!==value.checkedAt){const stored={...(shared(CACHE)||{}),[key]:{context:value.context,sources:value.sources,platform:value.platform,packages:value.packages,checkedAt:value.checkedAt}};const keys=Object.keys(stored).sort((a,b)=>stored[b].checkedAt-stored[a].checkedAt);setShared(CACHE,Object.fromEntries(keys.slice(0,12).map(k=>[k,stored[k]])));}
         if(generation!==this.generation)return;
         this.applyMetadata(value);
       } catch(error) {if(generation===this.generation)this.message=String(error.message||error);}

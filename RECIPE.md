@@ -51,10 +51,11 @@ the space folder and then the Git repository root when no sources exist. Use exp
 context props pinning tab and pane copies to a project. Offer Make, Just,
 Task, Mise, package scripts, Composer and Deno as described in README.
 Hydrate cached metadata immediately on opening/context change. Share one
-in-flight request between copies. Probe source contents every ten seconds;
-reuse unchanged runner metadata, including missing-runner errors, for up
-to sixty seconds. Manual Refresh forces enumeration. Imported-file and
-lockfile-only changes are refreshed at the sixty-second boundary. Do not
+in-flight request between copies. Load sources only when no cached list
+exists or on manual Refresh; do not poll source files or rerun metadata
+commands on a timer or merely because the cached list is old. Refresh
+also picks up imported-file, lockfile and installed-tool changes. Keep live
+task status/cancellation updates automatic. Do not
 serialize raw task source text into persistent shared state.
 Keep errors local to a source; do not replace another usable list with a
 missing-runner error. Discard stale asynchronous discovery results after
@@ -143,7 +144,7 @@ Make parsing lists explicit targets and phony names only. Mise exposes
 one effective configuration, not independently runnable config layers.
 Find child `package.json` files one level down with bounded `git ls-files`
 pathspecs, including tracked and nonignored untracked files. Exclude
-dependency/generated folders; cache the lookup for sixty seconds and run
+dependency/generated folders; cache the lookup until manual Refresh and run
 it in parallel with root metadata enumeration. Show the relative manifest
 path in the selector, detect its own lockfile, and launch in its own cwd.
 Direct-folder and parent-folder views of the same manifest share identity.

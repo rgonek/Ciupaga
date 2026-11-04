@@ -9,7 +9,7 @@ export const candidates=[
 ];
 const excludedPackages=new Set(['node_modules','vendor','bower_components','bin','obj','dist','build','target','coverage']);
 async function nestedPackages(context,execute,previous,{force,now}) {
-  if(!force&&previous&&now-previous.at<60000)return previous;
+  if(!force&&previous)return previous;
   try {
     const result=await execute('git',['ls-files','--cached','--others','--exclude-standard','-z','--',':(glob)*/package.json'],{cwd:context.folder,on:context.machine});
     const paths=result.code===0?result.stdout.split('\0').filter(path=>/^[^/\\]+\/package\.json$/.test(path)&&!path.startsWith('.')&&!excludedPackages.has(path.split('/')[0].toLowerCase())):[];
@@ -30,7 +30,7 @@ export async function discover(context,read,execute,platform,previous=null,{forc
     seen.add(id);
     const old=previous?.fingerprints?.get(file),oldSource=previous?.sources?.find(s=>s.file===file);
     fingerprints.set(file,{text,at:old?.at??now});
-    if(!force&&old?.text===text&&oldSource&&now-old.at<60000){sources.push(oldSource);continue;}
+    if(!force&&old?.text===text&&oldSource){sources.push(oldSource);continue;}
     fingerprints.set(file,{text,at:now});
     const source={file,kind,tasks:[],error:null,note:''};
     if(kind==='package'&&file!=='package.json'){source.folder=joinPath(context.folder,file.slice(0,file.lastIndexOf('/')));source.identityFile='package.json';}

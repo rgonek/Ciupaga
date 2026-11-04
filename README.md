@@ -55,16 +55,17 @@ may do so. It does not install runners, trust Mise configs or change task files.
 The header shows a source picker when several sources exist and the file
 name when there is only one. Each source reports its own parse or missing
 runner error. Other sources remain usable. Reopening shows the cached list
-immediately. A shared ten-second probe checks source contents; unchanged
-native runner metadata (including unavailable tools) is reused for up to
-one minute. Manual Refresh forces enumeration. Concurrent views share the
-same pending read. Imported files and lockfile-only changes are picked up
-by the one-minute re-enumeration or manual Refresh.
+immediately. Sources are read when there is no cached list, and afterward
+only through manual Refresh. There is no periodic filesystem scan or
+runner enumeration. Concurrent views share the same pending read; cached
+metadata for up to twelve projects survives reopening and app restarts.
+Refresh after changing task definitions, imports, lockfiles or installed tools.
+Running-task status and cancellation continue to update automatically.
 
 In Git repositories Ciupaga also finds `package.json` one folder below
 the current folder, such as `frontend/package.json`. The selector keeps
 that relative path and runs the script from the manifest's own folder.
-The bounded Git lookup runs at most once per minute (or on manual Refresh),
+The bounded Git lookup runs on initial discovery and manual Refresh,
 in parallel with native runner enumeration. Generated/dependency folders
 such as `node_modules`, `bin`, `obj` and `dist` are excluded. This does not
 recursively search arbitrary directory trees or ignored package manifests.

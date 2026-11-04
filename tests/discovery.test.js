@@ -29,7 +29,7 @@ test('named options never shift positional parameters and booleans emit only whe
   assert.deepEqual(collectArguments(p,{force:false,target:'app'}),['app']);
 });
 
-test('unchanged task sources do not respawn runners; edits, TTL and forced refresh do',async()=>{
+test('unchanged task sources do not respawn runners; edits and forced refresh do',async()=>{
   let calls=0,content='first';
   const read=async path=>path.endsWith('/justfile')?content:null;
   const execute=async command=>{if(command==='git')return {code:0,stdout:''};calls++;return {code:0,stdout:'{"recipes":{"build":{"parameters":[]}}}'};};
@@ -38,8 +38,8 @@ test('unchanged task sources do not respawn runners; edits, TTL and forced refre
   const previous=()=>({sources,fingerprints:sources.fingerprints});
   sources=await discover(context,read,execute,'linux',previous(),{now:10000});assert.equal(calls,1);
   content='changed';sources=await discover(context,read,execute,'linux',previous(),{now:20000});assert.equal(calls,2);
-  sources=await discover(context,read,execute,'linux',previous(),{now:80000});assert.equal(calls,3);
-  sources=await discover(context,read,execute,'linux',previous(),{force:true,now:80001});assert.equal(calls,4);
+  sources=await discover(context,read,execute,'linux',previous(),{now:86400000});assert.equal(calls,2);
+  sources=await discover(context,read,execute,'linux',previous(),{force:true,now:86400001});assert.equal(calls,3);
 });
 test('missing runners are also cached and Windows source aliases are read only once',async()=>{
   let calls=0;const reads=[];
@@ -59,7 +59,7 @@ test('nested package scripts are discovered one level down and use their own fol
   assert.equal(sources[0].folder,'/repo/EndUserZone');assert.equal(sources[0].manager,'pnpm');
   assert.deepEqual(sources[0].tasks.map(t=>t.name),['dev','test']);
 });
-test('nested package search is cached for a minute; known manifests are still checked every probe',async()=>{
+test('nested package search remains cached until explicit refresh',async()=>{
   let scans=0,text='{"scripts":{"dev":"webpack"}}';
   const read=async path=>path==='/repo/ui/package.json'?text:null;
   const execute=async()=>{scans++;return {code:0,stdout:'ui/package.json\0'};};
@@ -68,7 +68,8 @@ test('nested package search is cached for a minute; known manifests are still ch
   text='{"scripts":{"build":"webpack"}}';
   sources=await discover({folder:'/repo'},read,execute,'linux',previous(),{now:10000});
   assert.equal(scans,1);assert.equal(sources[0].tasks[0].name,'build');
-  sources=await discover({folder:'/repo'},read,execute,'linux',previous(),{now:60000});assert.equal(scans,2);
+  sources=await discover({folder:'/repo'},read,execute,'linux',previous(),{now:86400000});assert.equal(scans,1);
+  sources=await discover({folder:'/repo'},read,execute,'linux',previous(),{force:true,now:86400001});assert.equal(scans,2);
 });
 test('nested manager detection reads lockfiles beside the manifest rather than the repository root',async()=>{
   const read=async path=>path==='/repo/ui/package.json'?'{"scripts":{"dev":"vite"}}':path==='/repo/ui/yarn.lock'?'lock':null;
