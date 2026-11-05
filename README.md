@@ -1,8 +1,6 @@
-# Ciupaga - Tasks
+# Ciupaga
 
-Run your project's tasks in [Herdr](https://herdr.dev). Star the commands you
-reach for every day and see how each run turns out. Open a console when you
-want the output.
+Ciupaga finds tasks in Make, Just, Task, Mise and package.json and runs them from a picker in [Herdr](https://herdr.dev). Start builds, tests or dev servers, see their status, and open the console for output.
 
 ![Ciupaga: project tasks beside a sheep and highlander's axe in the Tatras](preview.png)
 

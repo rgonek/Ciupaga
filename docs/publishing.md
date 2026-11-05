@@ -2,9 +2,8 @@
 
 The mod catalog uses the H1 and first paragraph of `RECIPE.md`:
 
-- Title: `Ciupaga - Tasks` (15 characters).
-- Description: Run your project's tasks in Herdr. Star your everyday commands,
-  check each run's result, and open a console when you need the output.
+- Title: `Run Make, Just & package scripts` (32 characters).
+- Description: Ciupaga finds tasks in Make, Just, Task, Mise, package.json, Composer and Deno files and runs them from a picker in Herdr. Start a build, test suite or dev server without typing its command. Switch task sources, search the list, and star the commands you use most. Tasks run in the background after you close the picker; return to check their status, cancel a run or open its console in a tab or split pane. Just tasks with declared parameters get an argument form. Keep the picker in a popover, sidebar, tab or pane. Runners must already be installed on the project machine; Ciupaga does not install them.
 
 `preview.png` currently uses proposal 2. All proposals are 1672 by 941 pixels:
 
@@ -51,7 +50,7 @@ remove only the fixture folder you created. Do not run both fixtures at once.
 
 Description:
 
-> Run your project's tasks in Herdr. Star everyday commands, check results, and open a console when you need it.
+> Ciupaga runs Make, Just, Task, Mise and package.json tasks from a picker in Herdr. Start builds, tests and dev servers, check their status, and open the console for output.
 
 Topics: `herdr`, `herdr-mod`, `task-runner`, `developer-tools`, `gpui`, `just`,
 `make`, `taskfile`, `mise`, `npm-scripts`.

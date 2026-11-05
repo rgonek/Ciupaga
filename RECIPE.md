@@ -1,7 +1,6 @@
-# Ciupaga - Tasks
+# Run Make, Just & package scripts
 
-Run your project's tasks in Herdr. Star your everyday commands, check each
-run's result, and open a console when you need the output.
+Ciupaga finds tasks in Make, Just, Task, Mise, package.json, Composer and Deno files and runs them from a picker in Herdr. Start a build, test suite or dev server without typing its command. Switch task sources, search the list, and star the commands you use most. Tasks run in the background after you close the picker; return to check their status, cancel a run or open its console in a tab or split pane. Just tasks with declared parameters get an argument form. Keep the picker in a popover, sidebar, tab or pane. Runners must already be installed on the project machine; Ciupaga does not install them.
 
 ![Ciupaga](preview.png)
 

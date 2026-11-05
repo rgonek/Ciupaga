@@ -1,7 +1,7 @@
 {
   "name": "ciupaga",
   "version": "0.1.0",
-  "description": "Run your project's tasks in Herdr.",
+  "description": "Ciupaga runs Make, Just, Task, Mise and package.json tasks from a picker in Herdr. Start builds, tests and dev servers, check their status, and open the console for output.",
   "license": "Apache-2.0",
   "private": true,
   "type": "module",
