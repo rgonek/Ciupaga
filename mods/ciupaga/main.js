@@ -218,7 +218,7 @@ export default class Ciupaga extends View {
           if(node.id&&node.type==='stack'&&action.path[i+1]?.id)run('layout.select',{stack:node.id,child:action.path[i+1].id});
         }
         run(action.name,action.args);
-      } else run(action.name,{...action.args,space:this.context.space,props:{role:place==='sidebar'?'sidebar':'pane',context:this.context}});
+      } else run(action.name,{...action.args,...(action.name==='tab.new'?{space:this.context.space}:{}),props:{role:place==='sidebar'?'sidebar':'pane',context:this.context}});
       if(this.options.overlay)closeOverlay(this.options.overlay);
     } catch(error) {this.message=String(error.message||error);cx.notify();}
   }
