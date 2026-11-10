@@ -3,8 +3,9 @@ export function normalizePeek(text,lines){
   return String(text||'').replace(/\x1b\][\s\S]*?(?:\x07|\x1b\\)/g,'').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'').replace(/\r\n/g,'\n').split('\n').map(line=>line.split('\r').at(-1).replace(/[\x00-\x08\x0b-\x1f\x7f]/g,'').trimEnd()).join('\n').trimEnd().split('\n').slice(-Math.min(50,lines)).join('\n');
 }
 // Share the coordinator across visible copies; never retain view contexts here.
+export const PEEK_API_VERSION=2;
 export class PeekCoordinator {
-  constructor(limit=100,store=null){this.entries=new Map();this.limit=limit;this.store=store;}
+  constructor(limit=100,store=null){this.entries=new Map();this.limit=limit;this.store=store;this.apiVersion=PEEK_API_VERSION;}
   read(key,{lines,finished=false},loader,now=Date.now()){
     if(!lines)return Promise.resolve({text:''});
     let entry=this.entries.get(key);

@@ -3,7 +3,7 @@ import {InputState} from 'gpui-base';
 import {focused,spaces,terminals,panes,theme,window,props,shared,setShared,exec,hc,readTextFile,run,layout,openOverlay,closeOverlay,nextCommand,notify} from 'herdr';
 import {discover} from './discovery.js';
 import {sourceKey,sourceIdentity,taskContext,taskKey,taskArgv,platformArgv,platformFromUname,collectArguments,migrateKeys,quickLaunchCatalog,quickLaunchPick,argumentsReady} from './model.js';
-import {contextFrom,launchArgs,reserveRun,resolveRecord,viewAction,consoleDestination,historyArgv} from './runtime.js';
+import {contextFrom,launchArgs,reserveRun,resolveRecord,viewAction,consoleDestination,historyArgv,settleConsolePlacement} from './runtime.js';
 import {render,launcher,outputView,launchView,taskMenu,uiMetrics} from './ui.js';
 import {cacheKey,metadataContext,sessionServices} from './cache.js';
 import {MANUAL_FILE,manualActionsFor,actionSettings,actionIdentity,manualArgv,manualContext,validateManualAction,launcherPreferenceKey} from './actions.js';
@@ -123,8 +123,9 @@ export default class Ciupaga extends View {
     if(!cached||cached.checkedAt===this.seenCheckedAt)return;
     this.seenCheckedAt=cached.checkedAt;this.applyMetadata(cached);
   }
-  prefs(){return shared(PREFS)||{};}
+  prefs(){return this.frameData?.prefs||shared(PREFS)||{};}
   get sources(){
+    if(this.frameData?.sources)return this.frameData.sources;
     const tasks=manualActionsFor(this.prefs().manualActions||[],this.context||{}).map(action=>({...action,file:MANUAL_FILE,parameters:[]}));
     return [...(tasks.length?[{kind:'manual',file:MANUAL_FILE,label:'Custom actions',tasks}]:[]),...(this.discoveredSources||[])];
   }
@@ -185,7 +186,7 @@ export default class Ciupaga extends View {
   }
   // The tab bar button lives in another mod. It reads this snapshot and posts a launch request.
   publishLauncher(){
-    if(this.role==='output'||!this.context)return;
+    if(this.role!=='button'||!this.context)return;
     const task=this.launcherTask(),record=task?this.record(task):null;
     const snapshot={folder:this.context?.folder||'',space:this.context?.space,machine:this.context?.machine||null,quick:this.launcherMode(),task:task?.name||null,id:task?.id||null,icon:task?this.settingsFor(task).icon:'ciupaga',file:task?.file||null,state:record?.state||'idle',choices:this.launcherChoices().map(item=>({id:item.id||null,name:item.name,file:item.file,icon:this.settingsFor(item).icon,description:item.description||''}))};
     const prev=shared(LAUNCHER);
@@ -248,7 +249,7 @@ export default class Ciupaga extends View {
     setShared(FORMS,{...(shared(FORMS)||{}),[key]:{...values,flags:this.flags||{}}});
   }
   record(task,index) {
-    const key=this.formKey(task);return resolveRecord(key,shared(RUNS)?.[key],index||terminals());
+    const key=this.formKey(task);return resolveRecord(key,(this.frameData?.runs||shared(RUNS))?.[key],index||this.frameData?.terminals||terminals());
   }
   peekSnapshot(task){
     const record=this.record(task),terminal=record.terminal;if(!terminal)return null;
@@ -311,7 +312,7 @@ export default class Ciupaga extends View {
         if(result.code!==0)throw new Error((result.stderr||result.stdout).trim()||'Could not start task');
         const started=JSON.parse(result.stdout),address=started.address||started.terminal?.address;
         this.patchRun(key,id,{phase:'launched',address});
-        if(shared(RUNS)?.[key]?.cancel&&address)this.killOnce(id,address);
+        if(shared(RUNS)?.[key]?.cancel&&address)this.killOnce(id,address,cx);
         if(!this.closed)this.reconcile(cx);
       } catch(error) {this.patchRun(key,id,{phase:'error',error:String(error.message||error)});}
       if(!this.closed){this.finishLaunch();cx.notify();}
@@ -320,10 +321,17 @@ export default class Ciupaga extends View {
   cancel(task,cx) {
     const record=this.record(task);
     if(record.entry)this.patchRun(record.key,record.entry.id,{cancel:true});
-    if(record.terminal)this.killOnce(record.entry?.id||record.terminal.address,record.terminal.address);
+    if(record.terminal)this.killOnce(record.entry?.id||record.terminal.address,record.terminal.address,cx);
     cx.notify();
   }
-  killOnce(id,address){const now=Date.now(),last=this.services.cancellations.get(id);if(last!=null&&now-last<5000)return;this.services.cancellations.set(id,now);run('terminal.kill',{terminal:address});}
+  killOnce(id,address,cx){
+    const now=Date.now(),last=this.services.cancellations.get(id);if(last!=null&&now-last<5000)return;
+    this.services.cancellations.set(id,now);
+    cx.spawn(async cx=>{try{
+      const result=await hc(['kill',address]);
+      if(result.code!==0)throw new Error(result.stderr||'Could not stop task');
+    }catch(error){this.message=String(error.message||error);if(!this.closed)cx.notify();}});
+  }
   reconcile(cx) {
     // Recovers starts even if their popup closed before hc's response arrived.
     const live=new Map(terminals().filter(t=>t.labels?.['ciupaga.run']).map(t=>[t.labels['ciupaga.run'],t]));
@@ -337,7 +345,7 @@ export default class Ciupaga extends View {
       }
       if(entry.final||entry.error)continue;
       if(terminal&&terminal.state!=='live'){this.patchRun(key,entry.id,{phase:'finished',final:terminal});continue;}
-      if(terminal&&entry.cancel)this.killOnce(entry.id,terminal.address);
+      if(terminal&&entry.cancel)this.killOnce(entry.id,terminal.address,cx);
       if(terminal||this.services.checks.has(entry.id))continue;
       if(!entry.address&&Date.now()-entry.at<3000)continue;
       this.services.checks.add(entry.id);
@@ -358,7 +366,7 @@ export default class Ciupaga extends View {
           const snapshot=JSON.parse(result.stdout);
           if(snapshot.labels?.['ciupaga.run']!==entry.id)throw new Error('Task terminal identity changed');
           if(snapshot.state!=='live')this.patchRun(key,entry.id,{phase:'finished',final:{...snapshot,address}});
-          else if(entry.cancel)this.killOnce(entry.id,address);
+          else if(entry.cancel)this.killOnce(entry.id,address,cx);
         } catch(error) {this.patchRun(key,entry.id,{phase:'error',error:String(error.message||error)});}
         finally {this.services.checks.delete(entry.id);}
         if(!this.closed)cx.notify();
@@ -404,9 +412,10 @@ export default class Ciupaga extends View {
       try {for(let i=0;i<50;i++) {
         const pane=panes().find(p=>p.terminal===terminal.address);
         if(pane){
+          const placed=await settleConsolePlacement(pane,origin,place,{panes,swap:args=>run('pane.swap',args),wait:ms=>cx.sleep(ms)});
+          if(!placed)throw new Error('The console placement changed before it could be confirmed. Try again.');
           if(place==='tab')run('tab.rename',{id:pane.tab,name:task.name});
           run('tab.select',{id:pane.tab});run('pane.focus',{pane:pane.pane});
-          if(place==='up'||place==='left')run('pane.swap',{pane:pane.pane,direction:place});
           automatic?.done(true);this.dismiss();return;
         }
         await cx.sleep(100);
@@ -416,7 +425,7 @@ export default class Ciupaga extends View {
       finally {this.services.opening.delete(terminal.address);}
     });
   }
-  consolePane(address){const all=panes(),direct=all.find(p=>p.terminal===address),viewer=shared(CONSOLES)?.[address];return direct||all.find(p=>p.pane===viewer?.pane&&p.terminal===viewer?.terminal)||null;}
+  consolePane(address){const all=this.frameData?.panes||panes(),direct=all.find(p=>p.terminal===address),viewer=(this.frameData?.consoles||shared(CONSOLES))?.[address];return direct||all.find(p=>p.pane===viewer?.pane&&p.terminal===viewer?.terminal)||null;}
   openOutput(task,terminal,place,cx,automatic) {
     if(this.services.opening.get(terminal.address)>Date.now())return;
     const origin=automatic?.origin||focused(),context=automatic?.context||this.context,before=new Set(panes().map(p=>p.pane)),name=`Ciupaga ${uid()}`;
@@ -431,10 +440,11 @@ export default class Ciupaga extends View {
         const tab=place==='tab'?spaces().flatMap(s=>s.tabs).find(t=>t.name===name):null;
         const candidate=panes().find(p=>!before.has(p.pane)&&p.terminal&&(place==='tab'?p.tab===tab?.id:p.tab===origin.tab&&JSON.stringify(terminals().find(t=>t.address===p.terminal)?.argv||[]).includes(target)));
         if(candidate){
+          const placed=await settleConsolePlacement(candidate,origin,place,{panes,swap:args=>run('pane.swap',args),wait:ms=>cx.sleep(ms)});
+          if(!placed)throw new Error('The console placement changed before it could be confirmed. Try again.');
           setShared(CONSOLES,{...(shared(CONSOLES)||{}),[terminal.address]:{pane:candidate.pane,terminal:candidate.terminal}});
           if(place==='tab')run('tab.rename',{id:candidate.tab,name:task.name});
           run('tab.select',{id:candidate.tab});run('pane.focus',{pane:candidate.pane});
-          if(place==='up'||place==='left')run('pane.swap',{pane:candidate.pane,direction:place});
           automatic?.done?.(true);this.dismiss();return;
         }
         await cx.sleep(100);
@@ -447,6 +457,11 @@ export default class Ciupaga extends View {
   menuHandle(){return this.menuFocus;}
   render(cx) {
     this.peekRequests=new Map();
+    this.frameData={prefs:shared(PREFS)||{},runs:shared(RUNS)||{},terminals:terminals(),panes:panes(),consoles:shared(CONSOLES)||{}};
+    this.frameData.sources=this.sources;
+    try{return this.renderContent(cx);}finally{this.frameData=null;}
+  }
+  renderContent(cx){
     if(this.role==='launch')return launchView(this);
     if(this.role==='menu')return taskMenu(this,cx);
     if(this.options.runner)return div().id('ciupaga-runner');

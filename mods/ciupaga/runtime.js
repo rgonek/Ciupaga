@@ -22,6 +22,23 @@ export function historyArgv(address,platform){
   if(platform==='windows')return ['powershell.exe','-NoLogo','-NoProfile','-NoExit','-Command',`& hc read '${String(address).replace(/'/g,"''")}' --lines 10000`];
   return ['sh','-c','hc read "$1" --lines 10000; exec "${SHELL:-/bin/sh}"','ciupaga-output',address];
 }
+export async function settleConsolePlacement(consolePane,origin,place,io){
+  let confirmed=0,lastSwap=-10;
+  // keep/new expose an optimistic pane before their core document write lands.
+  // Observe it across ticks before another structural command, then verify that
+  // a delayed core snapshot has not restored the original right/down order.
+  for(let attempt=0;attempt<20;attempt++){
+    await io.wait(100);
+    const peers=io.panes().filter(p=>p.tab===consolePane.tab),index=peers.findIndex(p=>p.pane===consolePane.pane);
+    if(index<0)return false;
+    if(attempt<2)continue;
+    if(place!=='left'&&place!=='up')return true;
+    const target=peers.findIndex(p=>p.pane===origin?.pane);if(target<0)return false;
+    if(index<target){if(++confirmed>=3)return true;}
+    else {confirmed=0;if(attempt-lastSwap>=3){io.swap({pane:consolePane.pane,target:origin.pane});lastSwap=attempt;}}
+  }
+  return false;
+}
 export function contextFrom(props,focus,spaces) {
   if(props.context?.folder)return props.context;
   const space=spaces.find(s=>s.id===focus?.space)||spaces.find(s=>s.active);

@@ -1,6 +1,6 @@
 // Session coordinator: shared promises coalesce copies without retaining their cx.
 import {sourceKey} from './model.js';
-import {PeekCoordinator} from './output.js';
+import {PeekCoordinator,PEEK_API_VERSION} from './output.js';
 export const cacheKey=context=>sourceKey(context,'');
 export const metadataContext=(request,resolved)=>({...resolved,space:request?.space});
 export class MetadataCache {
@@ -23,5 +23,6 @@ export function sessionServices(){
   const key=Symbol.for('ciupaga.services.v3');
   const services=globalThis[key]??= {metadata:new MetadataCache(),checks:new Set(),cancellations:new Map(),opening:new Map()};
   if(!(services.opening instanceof Map))services.opening=new Map();
-  services.peek??=new PeekCoordinator();return services;
+  if(services.peek?.apiVersion!==PEEK_API_VERSION)services.peek=new PeekCoordinator();
+  return services;
 }

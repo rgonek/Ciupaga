@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {runState,latestRun,launchArgs,contextFrom,findNode,viewAction,resolveRecord,reserveRun,terminalIndex,consoleDestination,historyArgv} from '../mods/ciupaga/runtime.js';
+import {runState,latestRun,launchArgs,contextFrom,findNode,viewAction,resolveRecord,reserveRun,terminalIndex,consoleDestination,historyArgv,settleConsolePlacement} from '../mods/ciupaga/runtime.js';
 import {sourceKey,taskContext,taskArgv} from '../mods/ciupaga/model.js';
 
 test('automatic console retains the original destination and falls back to its space tab',()=>{
@@ -16,6 +16,18 @@ test('finished console keeps an ordinary shell alive and treats terminal address
   assert.ok(windows.includes('-NoExit'));assert.equal(windows.at(-1),"& hc read 't1' --lines 10000");
   const unix=historyArgv('remote/t1;echo bad','linux');
   assert.equal(unix.at(-1),'remote/t1;echo bad');assert.match(unix[2],/exec/);assert.match(unix[2],/"\$1"/);
+});
+test('left console placement waits through optimistic attachment and verifies the final order',async()=>{
+  const origin={pane:'source',tab:'tab'},consolePane={pane:'console',tab:'tab'};let tick=0,order=[origin,consolePane],swaps=0;
+  const result=await settleConsolePlacement(consolePane,origin,'left',{
+    panes:()=>order,
+    wait:async()=>{tick++;if(tick===4)order=[origin,consolePane];},
+    swap:args=>{assert.ok(tick>=3,'must not race the initial keep operation');assert.deepEqual(args,{pane:'console',target:'source'});swaps++;order=[consolePane,origin];}
+  });
+  assert.equal(result,true);assert.deepEqual(order.map(p=>p.pane),['console','source']);assert.equal(swaps,2);
+});
+test('console placement stops if its pane disappears during attachment',async()=>{
+  assert.equal(await settleConsolePlacement({pane:'gone',tab:'tab'},{pane:'source'},'left',{panes:()=>[],wait:async()=>{},swap:()=>assert.fail('no surviving console')}),false);
 });
 
 test('terminal feedback distinguishes success, failure, kill and unknown code',()=>{

@@ -1,7 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {MetadataCache,cacheKey,metadataContext} from '../mods/ciupaga/cache.js';
+import {MetadataCache,cacheKey,metadataContext,sessionServices} from '../mods/ciupaga/cache.js';
 import {contextFrom} from '../mods/ciupaga/runtime.js';
+
+test('hot reload upgrades a legacy peek service to publish shared output',async()=>{
+  const key=Symbol.for('ciupaga.services.v3'),previous=globalThis[key];
+  try{
+    globalThis[key]={metadata:new MetadataCache(),checks:new Set(),cancellations:new Map(),opening:new Map(),peek:{read:async(_key,_options,load)=>({text:await load()})}};
+    const service=sessionServices(),state=new Map();
+    service.peek.store={get:key=>state.get(key),set:(key,value)=>state.set(key,value)};
+    await service.peek.read('new-run',{lines:1},async()=>'new output',0);
+    assert.equal(state.get('new-run')?.raw,'new output');
+  }finally{if(previous)globalThis[key]=previous;else delete globalThis[key];}
+});
 
 test('metadata cache coalesces copies and only refreshes on explicit request regardless of age',async()=>{
   let calls=0,finish;const cache=new MetadataCache();

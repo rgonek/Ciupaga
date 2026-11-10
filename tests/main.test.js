@@ -8,7 +8,7 @@ import {cacheKey} from '../mods/ciupaga/cache.js';
 const data=code=>'data:text/javascript;base64,'+Buffer.from(code).toString('base64');
 const kit=data('export class View{}; export const div=()=>({id(){return this}});');
 const base=data('export class InputState { static new(o){return new InputState(o)} constructor(o){this.text=o.value||""} on(){} value(){return this.text} set_value(v){this.text=v} release(){this.released=true} }');
-const ui=data('export const uiMetrics=()=>({px:x=>x}); export const render=()=>{}; export const launcher=render,outputView=render,launchView=render,taskMenu=render;');
+const ui=data('export const uiMetrics=()=>({px:x=>x}); export const render=(view,cx)=>globalThis.__ciupagaRenderProbe?.(view,cx); export const launcher=render,outputView=render,launchView=render,taskMenu=render;');
 const names=['focused','spaces','terminals','panes','theme','window','props','shared','setShared','exec','hc','readTextFile','run','layout','openOverlay','closeOverlay','nextCommand','notify'];
 const host=data(names.map(name=>`export const ${name}=(...args)=>globalThis.__ciupagaTestHost.${name}(...args);`).join('\n'));
 const mainURL=new URL('../mods/ciupaga/main.js',import.meta.url);
@@ -94,4 +94,31 @@ test('disabling a peek removes an already registered read before the next timer 
   globalThis.__ciupagaTestHost.hc=async()=>{reads++;return {code:0,stdout:'output'}};
   const task=view.launcherChoices()[0];view.peek(task,cx);view.setActionSettings(task,{peekLines:0},cx);view.refreshPeeks(cx);
   assert.equal(reads,0);
+});
+test('pinned task views do not overwrite the active toolbar snapshot',()=>{
+  const {view,state}=setup([action]);
+  const snapshot={space:'other',folder:'D:/other',task:'other'};
+  state['ciupaga.v1.launcher']=snapshot;view.publishLauncher();
+  assert.deepEqual(state['ciupaga.v1.launcher'],snapshot);
+  view.role='button';view.publishLauncher();assert.equal(state['ciupaga.v1.launcher'].space,'s1');
+});
+test('cancelling a task kills it through core once without a competing native pane removal',async()=>{
+  const {view,cx,tasks,commands}=setup([action]),calls=[];
+  globalThis.__ciupagaTestHost.hc=async args=>{calls.push(args);return {code:0,stdout:''}};
+  view.killOnce('cancel-via-core','t700',cx);view.killOnce('cancel-via-core','t700',cx);
+  await Promise.resolve();
+  assert.deepEqual(calls,[['kill','t700']]);assert.ok(!commands.some(([name])=>name==='terminal.kill'));
+});
+test('a large render snapshots host preferences, runs and terminals instead of rereading each row',()=>{
+  const {view,cx}=setup(),source={kind:'just',file:'justfile',tasks:Array.from({length:30},(_,i)=>({name:'task'+i,parameters:[]}))};
+  view.discoveredSources=[source];const reads={},host=globalThis.__ciupagaTestHost,originalShared=host.shared;
+  host.shared=key=>{reads[key]=(reads[key]||0)+1;return originalShared(key)};
+  let terminals=0,panes=0;host.terminals=()=>{terminals++;return []};host.panes=()=>{panes++;return []};
+  globalThis.__ciupagaRenderProbe=rendered=>{for(const task of source.tasks){rendered.record(task);rendered.settingsFor(task);rendered.consolePane('missing');}};
+  try{view.render(cx);
+    assert.ok(reads['ciupaga.v1.preferences']<=1,`preferences: ${reads['ciupaga.v1.preferences']}`);
+    assert.ok(reads['ciupaga.v1.runs']<=1,`runs: ${reads['ciupaga.v1.runs']}`);
+    assert.ok(terminals<=1,`terminals: ${terminals}`);assert.ok(panes<=1,`panes: ${panes}`);
+    assert.equal(view.frameData,null);
+  }finally{delete globalThis.__ciupagaRenderProbe;}
 });

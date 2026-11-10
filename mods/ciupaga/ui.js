@@ -1,12 +1,19 @@
 import {div,svg,list} from 'gpui-kit';
 import {h_flex,v_flex,Button,Toggle,Checkbox,Popover,Input,TextView} from 'gpui-base';
-import {theme,terminals,settings} from 'herdr';
+import {theme as hostTheme,terminals,settings} from 'herdr';
 import {typography} from './typography.js';
 import {groupTasks,taskArgv} from './model.js';
 import {statusText,terminalIndex} from './runtime.js';
 import {ACTION_ICONS,MANUAL_FILE,actionSettings} from './actions.js';
 
-export function uiMetrics(){return typography(settings().ui_font_size,window.rem_size());}
+let frame=null;
+function uiFrame(body){
+  if(frame)return body();
+  frame={theme:hostTheme(),metrics:typography(settings().ui_font_size,window.rem_size())};
+  try{return body();}finally{frame=null;}
+}
+function theme(){return frame?.theme||hostTheme();}
+export function uiMetrics(){return frame?.metrics||typography(settings().ui_font_size,window.rem_size());}
 const px=value=>uiMetrics().px(value);
 
 function text(value,muted=false){return div().text_size(uiMetrics().body).text_color(muted?theme().muted:theme().foreground).child(value);}
@@ -32,13 +39,14 @@ export function launchView(view) {
   return h_flex().id('ciupaga-launch').h(px(36)).px(px(10)).gap(px(8)).items_center().bg(theme().background)
     .child(icon('loader-circle',14).spin(900)).child(text(view.options.task||'Task').truncate());
 }
-export function taskMenu(view,cx) {
+export function taskMenu(view,cx){return uiFrame(()=>taskMenuContent(view,cx));}
+function taskMenuContent(view,cx) {
   const t=theme(),choices=view.launcherChoices();
   const rowsHeight=choices.reduce((height,item)=>height+px(48)+(view.settingsFor(item).peekLines&&view.record(item).terminal?Math.min(px(180),Math.max(1,(view.peekSnapshot?.(item)?.text||'').split('\n').length)*uiMetrics().fontSize*1.5+px(5)):0),0);
   return v_flex().id('ciupaga-menu').w_full().h(Math.min(px(420),px(44)+Math.max(px(45),rowsHeight))).max_h(px(420)).bg(t.popover)
     .child(h_flex().p(px(5)).gap(px(4)).items_center()
-      .child(button('full-view','Full view',()=>view.openPopup(),{tip:'Open all actions and settings'}).flex_1())
-      .child(button('add-action','Add action',()=>view.openPopup(undefined,undefined,true),{tip:'Create a custom action'}).flex_1()))
+      .child(button('full-view','Full view',(_event,cx)=>{view.openMenu=null;cx.notify();view.openPopup();},{tip:'Open all actions and settings'}).flex_1())
+      .child(button('add-action','Add action',(_event,cx)=>{view.openMenu=null;cx.notify();view.openPopup(undefined,undefined,true);},{tip:'Create a custom action'}).flex_1()))
     .child(v_flex().flex_1().min_h(0).overflow_y_scrollbar().p(px(4)).gap(px(2))
       .when(!choices.length,e=>e.child(text(view.loading?'Reading tasks…':'Add an action or star a project task',true).p(px(8))))
       .children(choices.map((item,i)=>{
@@ -50,7 +58,8 @@ export function taskMenu(view,cx) {
           .child(peekRow(view,item,cx,'quick-'+i));
       })));
 }
-export function launcher(view,cx) {
+export function launcher(view,cx){return uiFrame(()=>launcherContent(view,cx));}
+function launcherContent(view,cx) {
   const bounds=(event)=>{view.buttonBounds=event.bounds;};
   const open=button('ciupaga-open',h_flex().gap(px(6)).items_center().child(icon('ciupaga',17)).child('Ciupaga'),()=>view.openPopup(),{tip:'Ciupaga · run project tasks'}).on_mouse_down('left',bounds);
   if(!view.launcherMode())return open;
@@ -66,7 +75,7 @@ export function launcher(view,cx) {
       .when(!busy&&state!=='idle',e=>e.child(icon(state==='succeeded'?'check':'square',11).text_color(state==='succeeded'?t.done:['failed','error'].includes(state)?t.ansi1:t.dim))));
   const chevron=Popover.new('quick-actions').open(view.openMenu==='launcher').track_focus(view.menuHandle())
     .on_open_change((open,cx)=>{view.openMenu=open?'launcher':null;cx.notify();})
-    .trigger(button('quick-actions-trigger',icon('chevron-down',12),null,{tip:'Quick actions'}).w(px(24)).px(0))
+    .trigger(button('quick-actions-trigger',icon('chevron-down',12),null,{tip:'Quick actions'}).w(px(24)).px(0).on_mouse_down('left',bounds))
     .when(view.openMenu==='launcher',e=>e.content(div().w(px(360)).rounded(px(8)).border_1().border_color(t.border).child(taskMenu(view,cx))));
   return h_flex().id('ciupaga-launcher').w_full().min_w(0).gap(px(2)).items_center().child(run).child(chevron);
 }
@@ -74,12 +83,15 @@ function peekRow(view,task,cx,id){
   if(!view.settingsFor(task).peekLines||!view.record(task).terminal)return div();
   const escape=value=>value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const saved=view.peekSnapshot?.(task),lineCount=Math.max(1,(saved?.text||'').split('\n').length);
+  const contentKey=JSON.stringify([id,saved?.text||'',Boolean(saved?.unavailable)]);
   // A one-item native lazy list is clipped by the enclosing task scroller.
   // Its row callback registers IO only for peeks actually drawn on screen.
   return div().px(px(9)).pb(px(5)).min_w(0).h(Math.min(px(180),lineCount*uiMetrics().fontSize*1.5+px(5)))
-    .child(list('peek-lazy-'+id,1,()=>id,(_index,cx)=>{
-      const snapshot=view.peek(task,cx);
-      return snapshot?.text?TextView.html('peek-'+id,`<pre>${escape(snapshot.text)}</pre>`).selectable(true).scrollable(false).text_size(uiMetrics().code).text_color(theme().muted):text(snapshot?.unavailable?'Output unavailable':'',true).text_size(uiMetrics().caption);
+    .child(list('peek-lazy-'+id,1,()=>contentKey,(_index,cx)=>{
+      return uiFrame(()=>{
+        const snapshot=view.peek(task,cx);
+        return snapshot?.text?TextView.html('peek-'+id,`<pre>${escape(snapshot.text)}</pre>`).selectable(true).scrollable(false).text_size(uiMetrics().code).text_color(theme().muted):text(snapshot?.unavailable?'Output unavailable':'',true).text_size(uiMetrics().caption);
+      });
     }).size_full());
 }
 function settingsControls(view,cx,id,value,update,peekInput){
@@ -148,14 +160,15 @@ function taskRow(view,task,cx,source,index) {
     .when(Boolean(task.id),e=>e.child(button('edit-'+task.id,'Edit action',(_e,cx)=>view.editManual(task.id,cx))))
     .child(text(task.id?task.command:taskArgv(source,task).join(' '),true).text_size(uiMetrics().code).truncate()));
 }
-export function render(view,cx) {
+export function render(view,cx){return uiFrame(()=>renderContent(view,cx));}
+function renderContent(view,cx) {
   const t=theme(),source=view.source(),query=view.search.value().toLowerCase();
-  const index=terminalIndex(terminals());
+  const index=terminalIndex(view.frameData?.terminals||terminals());
   const groups=groupTasks(source?.tasks||[],view.sourcePrefs().stars||[]);
   const matches=task=>!query||`${task.name} ${task.description}`.toLowerCase().includes(query);
   const primary=groups.primary.filter(matches),others=groups.others.filter(matches),showOthers=view.others||Boolean(query);
   const quick=view.launcherMode();
-  const frame=v_flex().id('ciupaga-root').size_full().when(view.role==='sidebar',e=>e.border_1().border_color(t.border).rounded(px(8))).min_w(0).min_h(0).bg(t.background).text_color(t.foreground).text_size(uiMetrics().body).line_height(uiMetrics().lineHeight).track_focus(view.handle);
+  const frame=v_flex().id('ciupaga-root').size_full().when(view.role==='popup',e=>e.h(px(520))).when(view.role==='sidebar',e=>e.border_1().border_color(t.border).rounded(px(8))).min_w(0).min_h(0).bg(t.background).text_color(t.foreground).text_size(uiMetrics().body).line_height(uiMetrics().lineHeight).track_focus(view.handle);
   const embedded=view.role==='pane'||view.role==='tab';
   const sourceChoice=view.sources.length>1?menu(view,cx,'sources',h_flex().gap(px(6)).items_center().child(text(source?.label||source?.file||'Source').truncate()).child(icon('chevron-down',12)),view.sources.map(s=>({label:s.label||s.file,action:cx=>view.selectSource(s.file,cx)})),'Choose task source'):text(source?.label||source?.file||'Tasks',true).truncate();
   return frame
