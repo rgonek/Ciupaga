@@ -4,7 +4,7 @@ import {focused,spaces,terminals,panes,theme,window,props,shared,setShared,exec,
 import {discover} from './discovery.js';
 import {sourceKey,sourceIdentity,taskContext,taskKey,taskArgv,platformArgv,platformFromUname,collectArguments,migrateKeys,quickLaunchCatalog,quickLaunchPick,argumentsReady} from './model.js';
 import {contextFrom,launchArgs,reserveRun,resolveRecord,viewAction} from './runtime.js';
-import {render,launcher,outputView,launchView,taskMenu} from './ui.js';
+import {render,launcher,outputView,launchView,taskMenu,uiMetrics} from './ui.js';
 import {cacheKey,metadataContext,sessionServices} from './cache.js';
 
 const PREFS='ciupaga.v1.preferences',RUNS='ciupaga.v1.runs',FORMS='ciupaga.v1.forms',CACHE='ciupaga.v2.metadata',CONSOLES='ciupaga.v2.consoles',LAUNCH='ciupaga.v1.launch',LAUNCHER='ciupaga.v1.launcher';
@@ -276,7 +276,7 @@ export default class Ciupaga extends View {
   }
   openPopup(focusTask,focusFile) {
     const bounds=this.buttonBounds,task=typeof focusTask==='string'?focusTask:undefined,file=typeof focusFile==='string'?focusFile:undefined;
-    openOverlay({mod:'ciupaga',kind:'popup',width:520,height:520,props:{role:'popup',context:this.currentContext(),...(task?{focusTask:task}:{}),...(file?{focusFile:file}:{})},...(bounds?{at:{x:bounds.x,y:bounds.y+bounds.height+4}}:{})});
+    openOverlay({mod:'ciupaga',kind:'popup',width:uiMetrics().px(520),height:uiMetrics().px(520),props:{role:'popup',context:this.currentContext(),...(task?{focusTask:task}:{}),...(file?{focusFile:file}:{})},...(bounds?{at:{x:bounds.x,y:bounds.y+bounds.height+4}}:{})});
   }
   present(place,cx) {
     try {
