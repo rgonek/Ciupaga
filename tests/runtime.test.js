@@ -1,7 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {runState,latestRun,launchArgs,contextFrom,findNode,viewAction,resolveRecord,reserveRun,terminalIndex} from '../mods/ciupaga/runtime.js';
+import {runState,latestRun,launchArgs,contextFrom,findNode,viewAction,resolveRecord,reserveRun,terminalIndex,consoleDestination} from '../mods/ciupaga/runtime.js';
 import {sourceKey,taskContext,taskArgv} from '../mods/ciupaga/model.js';
+
+test('automatic console retains the original destination and falls back to its space tab',()=>{
+  const origin={space:'s1',tab:'t1',pane:'p1'};
+  const left=consoleDestination('left',origin);origin.space='s2';origin.pane='p2';
+  assert.deepEqual(left,{place:'left',space:'s1',tab:'t1',pane:'p1'});
+  assert.deepEqual(consoleDestination('right',{space:'s1'}),{place:'tab',space:'s1',tab:null,pane:null});
+  assert.equal(consoleDestination('background',origin),null);
+  assert.equal(consoleDestination('tab',origin).space,'s2');
+});
 
 test('terminal feedback distinguishes success, failure, kill and unknown code',()=>{
   assert.equal(runState(null),'idle');

@@ -14,6 +14,10 @@ export function launchArgs(context,key,id,argv) {
   return ['run','--json','--bg','--no-parent','--no-notify','--cwd',context.folder,
     ...(context.machine?['--on',context.machine]:[]),'--label',`ciupaga.task=${key}`,'--label',`ciupaga.run=${id}`,'--',...argv];
 }
+export function consoleDestination(place,origin={}){
+  if(place==='background')return null;
+  return {place:place==='tab'||!origin.pane?'tab':place,space:origin.space||null,tab:origin.tab||null,pane:origin.pane||null};
+}
 export function contextFrom(props,focus,spaces) {
   if(props.context?.folder)return props.context;
   const space=spaces.find(s=>s.id===focus?.space)||spaces.find(s=>s.active);
