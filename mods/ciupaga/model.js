@@ -141,6 +141,27 @@ export function groupTasks(tasks,stars=[]) {
   const selected=new Set(stars),primary=tasks.filter(t=>selected.has(t.name));
   return primary.length?{primary,others:tasks.filter(t=>!selected.has(t.name))}:{primary:tasks,others:[]};
 }
+// Starred tasks stay one click away. With no stars, the tab bar lists every task.
+export function quickLaunchTasks(tasks=[],stars=[]) {
+  const selected=tasks.filter(t=>stars.includes(t.name));
+  return selected.length?selected:tasks;
+}
+export function quickLaunchTask(tasks=[],stars=[],pinned) {
+  const choices=quickLaunchTasks(tasks,stars);
+  return choices.find(t=>t.name===pinned)||choices[0]||null;
+}
+// Favorites from every task file. With none, every task from every file.
+export function quickLaunchCatalog(sources=[],starsFor=()=>[]) {
+  const starred=sources.flatMap(source=>(source.tasks||[]).filter(task=>starsFor(source).includes(task.name)).map(task=>({...task,file:source.file})));
+  return starred.length?starred:sources.flatMap(source=>(source.tasks||[]).map(task=>({...task,file:source.file})));
+}
+export function quickLaunchPick(choices=[],pin={}) {
+  return choices.find(task=>task.file===pin.file&&task.name===pin.task)||choices[0]||null;
+}
+export function argumentsReady(task,saved={}) {
+  if(!task?.parameters?.some(p=>p.required))return true;
+  try{collectArguments(task.parameters,{...saved,...(saved.flags||{})},saved.$extra||'');return true;}catch{return false;}
+}
 export function collectArguments(parameters,values,extra='') {
   const args=[],pending=[];
   const positional=tokens=>{if(pending.some(v=>v===undefined))throw new Error('Fill earlier positional parameters before later ones');args.push(...pending,...tokens);pending.length=0;};

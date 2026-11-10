@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseArguments, parseMake, parseJust, parseTask, parseMise, packageTasks, taskArgv, sourceKey, groupTasks, platformArgv,collectArguments,migrateKeys,sourceIdentity,taskContext} from '../mods/ciupaga/model.js';
+import {parseArguments, parseMake, parseJust, parseTask, parseMise, packageTasks, taskArgv, sourceKey, groupTasks, platformArgv,collectArguments,migrateKeys,sourceIdentity,taskContext,quickLaunchTasks,quickLaunchTask,quickLaunchCatalog,quickLaunchPick,argumentsReady} from '../mods/ciupaga/model.js';
 
 test('argument tokens preserve literal values, empty strings and Windows paths', () => {
   assert.deepEqual(parseArguments('--name "hello world" \'\' C:\\temp\\x "a\\b"'), ['--name','hello world','','C:\\temp\\x','a\\b']);
@@ -28,6 +28,24 @@ test('package scripts select declared manager, pass args after separator only fo
   assert.deepEqual(taskArgv(source,{name:'dev'},['--port','4000']),['pnpm','run','dev','--port','4000']);
   assert.deepEqual(taskArgv({...source,manager:'npm'},{name:'dev'},['--watch']),['npm','run','dev','--','--watch']);
   assert.deepEqual(taskArgv({kind:'just',file:'Justfile'},{name:'hello'},['Joe']),['just','--justfile','Justfile','--','hello','Joe']);
+});
+test('the tab bar runs the pinned task, or the first starred task when the pin is absent', () => {
+  const tasks=[{name:'a'},{name:'b'},{name:'c'}];
+  assert.deepEqual(quickLaunchTasks(tasks,[]).map(t=>t.name),['a','b','c']);
+  assert.deepEqual(quickLaunchTasks(tasks,['c','gone','a']).map(t=>t.name),['a','c']);
+  assert.equal(quickLaunchTask(tasks,['c','a'],'c').name,'c');
+  assert.equal(quickLaunchTask(tasks,['c','a'],'b').name,'a');
+  assert.equal(quickLaunchTask(tasks,[],'missing').name,'a');
+  assert.equal(quickLaunchTask([],[],'a'),null);
+  const sources=[{file:'Justfile',tasks:[{name:'build'},{name:'test'}]},{file:'package.json',tasks:[{name:'dev'},{name:'build'}]}];
+  const stars=source=>source.file==='Justfile'?['test']:source.file==='package.json'?['dev']:[];
+  assert.deepEqual(quickLaunchCatalog(sources,stars).map(task=>[task.file,task.name]),[['Justfile','test'],['package.json','dev']]);
+  assert.deepEqual(quickLaunchCatalog(sources,()=>[]).map(task=>[task.file,task.name]),[['Justfile','build'],['Justfile','test'],['package.json','dev'],['package.json','build']]);
+  assert.equal(quickLaunchPick(quickLaunchCatalog(sources,stars),{file:'package.json',task:'dev'}).file,'package.json');
+  assert.equal(quickLaunchPick(quickLaunchCatalog(sources,stars),{file:'missing',task:'nope'}).name,'test');
+  assert.equal(argumentsReady({parameters:[]},{}),true);
+  assert.equal(argumentsReady({parameters:[{name:'name',required:true}]},{}),false);
+  assert.equal(argumentsReady({parameters:[{name:'name',required:true}]},{name:'Ada'}),true);
 });
 test('stars only collapse Others when an existing task is starred', () => {
   const tasks=[{name:'a'},{name:'b'}];

@@ -1,13 +1,14 @@
-import {View} from 'gpui-kit';
+import {View,div} from 'gpui-kit';
 import {InputState} from 'gpui-base';
 import {focused,spaces,terminals,panes,theme,window,props,shared,setShared,exec,hc,readTextFile,run,layout,openOverlay,closeOverlay,nextCommand,notify} from 'herdr';
 import {discover} from './discovery.js';
-import {sourceKey,sourceIdentity,taskContext,taskKey,taskArgv,platformArgv,platformFromUname,collectArguments,migrateKeys} from './model.js';
+import {sourceKey,sourceIdentity,taskContext,taskKey,taskArgv,platformArgv,platformFromUname,collectArguments,migrateKeys,quickLaunchCatalog,quickLaunchPick,argumentsReady} from './model.js';
 import {contextFrom,launchArgs,reserveRun,resolveRecord,viewAction} from './runtime.js';
-import {render,launcher,outputView} from './ui.js';
+import {render,launcher,outputView,launchView,taskMenu} from './ui.js';
 import {cacheKey,metadataContext,sessionServices} from './cache.js';
 
-const PREFS='ciupaga.v1.preferences',RUNS='ciupaga.v1.runs',FORMS='ciupaga.v1.forms',CACHE='ciupaga.v2.metadata',CONSOLES='ciupaga.v2.consoles';
+const PREFS='ciupaga.v1.preferences',RUNS='ciupaga.v1.runs',FORMS='ciupaga.v1.forms',CACHE='ciupaga.v2.metadata',CONSOLES='ciupaga.v2.consoles',LAUNCH='ciupaga.v1.launch',LAUNCHER='ciupaga.v1.launcher';
+const folderKey=folder=>String(folder||'').replace(/\\/g,'/').replace(/\/+$/,'').toLowerCase();
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
 
 export default class Ciupaga extends View {
@@ -19,8 +20,9 @@ export default class Ciupaga extends View {
     this.search=InputState.new({placeholder:'Find a task…'});
     this.search.on('change',(_e,cx)=>cx.notify());
     this.handle=cx.focus_handle();this.menuFocus=cx.focus_handle();
-    if(this.role!=='button'&&this.role!=='output')this.activate(cx);
-    cx.timer.every(1000,cx=>{this.reconcile(cx);if(this.role!=='button'&&this.role!=='output')this.activate(cx);});
+    if(this.needsTasks())this.activate(cx);
+    cx.timer.every(1000,cx=>{this.reconcile(cx);if(this.needsTasks())this.activate(cx);if(this.role==='button'){this.syncLauncher();cx.notify();}});
+    if(this.role!=='output')cx.timer.every(200,cx=>{this.consumeLaunch(cx);this.publishLauncher();this.maybeLaunch(cx);});
     cx.spawn(async cx=>{for(;;){const command=await nextCommand();const name=typeof command==='string'?command:command.name;
       if(name==='focus')this.handle.focus();
       if(name==='open')this.openPopup();
@@ -56,7 +58,7 @@ export default class Ciupaga extends View {
     this.requestContext=context;
     this.context=context;this.sources=[];this.detail=null;this.loading=false;this.others=false;this.generation++;
     const cached=this.services.metadata.peek(cacheKey(context))||shared(CACHE)?.[cacheKey(context)];
-    if(cached){this.services.metadata.seed(cacheKey(context),cached);this.applyMetadata(cached);}
+    if(cached){this.seenCheckedAt=cached.checkedAt;this.services.metadata.seed(cacheKey(context),cached);this.applyMetadata(cached);}
     this.reload(cx);
   }
   async platform(context) {
@@ -101,19 +103,87 @@ export default class Ciupaga extends View {
         },Date.now(),force);
         if(shared(CACHE)?.[key]?.checkedAt!==value.checkedAt){const stored={...(shared(CACHE)||{}),[key]:{context:value.context,sources:value.sources,platform:value.platform,packages:value.packages,checkedAt:value.checkedAt}};const keys=Object.keys(stored).sort((a,b)=>stored[b].checkedAt-stored[a].checkedAt);setShared(CACHE,Object.fromEntries(keys.slice(0,12).map(k=>[k,stored[k]])));}
         if(generation!==this.generation)return;
-        this.applyMetadata(value);
+        this.applyMetadata(value);this.seenCheckedAt=value.checkedAt;this.revealFocus(cx);this.maybeLaunch(cx);
       } catch(error) {if(generation===this.generation)this.message=String(error.message||error);}
       if(generation===this.generation){this.loading=false;cx.notify();}
     });
   }
+  needsTasks(){return this.role==='output'?false:this.role!=='button'||this.launcherMode();}
+  syncLauncher(){
+    if(this.role!=='button'||!this.launcherMode()||!this.context?.folder)return;
+    const cached=shared(CACHE)?.[cacheKey(this.context)];
+    if(!cached||cached.checkedAt===this.seenCheckedAt)return;
+    this.seenCheckedAt=cached.checkedAt;this.applyMetadata(cached);
+  }
   prefs(){return shared(PREFS)||{};}
+  launcherMode(){return this.prefs().launcher?.quick===true;}
+  setLauncher(quick,cx){
+    this.patchPrefs('launcher',{quick:Boolean(quick)});
+    this.publishLauncher();
+    if(cx)cx.notify();
+  }
+  launcherChoices(){return quickLaunchCatalog(this.sources||[],source=>this.prefs()[sourceIdentity(this.context,source)]?.stars||[]);}
+  launcherTask(){
+    const pin=this.prefs().launcher||{},choices=this.launcherChoices();
+    if(pin.file||pin.task)return quickLaunchPick(choices,{file:pin.file,task:pin.task});
+    for(const source of this.sources||[]){const name=this.prefs()[sourceIdentity(this.context,source)]?.launcher;const found=typeof name==='string'&&choices.find(task=>task.file===source.file&&task.name===name);if(found)return found;}
+    return choices[0]||null;
+  }
+  sourceOf(task){return (task?.file&&this.sources.find(source=>source.file===task.file))||this.source();}
+  chooseLauncher(task,cx){
+    const source=this.sourceOf(task);if(!source)return;
+    this.patchPrefs('launcher',{file:source.file,task:task.name});
+    this.openMenu=null;this.launchQuick({...task,file:source.file},cx);
+  }
+  launchQuick(task,cx){
+    const state=this.record(task).state;
+    if(state==='cancelling'){this.finishLaunch();return;}
+    if(state==='starting'||state==='running'){this.cancel(task,cx);this.finishLaunch();return;}
+    if(!argumentsReady(task,shared(FORMS)?.[this.formKey(task)]||{})){this.openPopup(task.name,task.file);this.finishLaunch();return;}
+    this.start(task,cx,true);
+  }
+  // The tab bar button lives in another mod. It reads this snapshot and posts a launch request.
+  publishLauncher(){
+    if(this.role==='output'||!this.source())return;
+    const task=this.launcherTask(),record=task?this.record(task):null;
+    const snapshot={folder:this.context?.folder||'',quick:this.launcherMode(),task:task?.name||null,file:task?.file||null,state:record?.state||'idle',choices:this.launcherChoices().map(item=>({name:item.name,file:item.file,description:item.description||''}))};
+    const prev=shared(LAUNCHER);
+    if(prev&&prev.folder===snapshot.folder&&prev.quick===snapshot.quick&&prev.task===snapshot.task&&prev.file===snapshot.file&&prev.state===snapshot.state&&JSON.stringify(prev.choices)===JSON.stringify(snapshot.choices))return;
+    setShared(LAUNCHER,snapshot);
+  }
+  maybeLaunch(cx){
+    if(this.role!=='launch'||this.launched)return;
+    const task=this.launcherChoices().find(item=>item.name===this.options.task&&(!this.options.file||item.file===this.options.file));
+    if(!task)return;
+    this.launched=true;this.launchQuick(task,cx);
+  }
+  finishLaunch(){if(this.role==='menu'||this.role==='launch')this.dismiss();}
+  consumeLaunch(cx){
+    const request=shared(LAUNCH);
+    if(!request||request.claimed||this.role==='launch'||this.role==='menu')return;
+    if(Date.now()-request.at>5000){setShared(LAUNCH,{...request,claimed:true});return;}
+    const folder=folderKey(this.context?.folder),want=folderKey(request.folder);
+    if(!folder||(want&&folder!==want))return;
+    const task=this.source()?.tasks.find(item=>item.name===request.task);
+    if(!task)return;
+    setShared(LAUNCH,{...request,claimed:true});
+    if(request.pin)this.chooseLauncher(task,cx);else this.launchQuick(task,cx);
+  }
+  revealFocus(cx){
+    const name=this.options.focusTask;
+    if(!name||this.revealed||this.role==='button'||this.role==='output')return;
+    const source=this.options.focusFile&&this.sources.find(item=>item.file===this.options.focusFile);
+    if(source&&this.source()?.file!==source.file)this.patchPrefs(this.contextKey(),{file:source.file});
+    const task=(source||this.source())?.tasks.find(t=>t.name===name);if(!task)return;
+    this.revealed=true;this.showDetail(task,cx);
+  }
   contextKey(){return sourceKey(this.context||{},'');}
   source(){const file=this.prefs()[this.contextKey()]?.file;return this.sources.find(s=>s.file===file)||this.sources[0]||null;}
   sourcePrefs(){const s=this.source();return s?this.prefs()[sourceIdentity(this.context,s)]||{}:{};}
   patchPrefs(key,patch){setShared(PREFS,{...this.prefs(),[key]:{...this.prefs()[key],...patch}});}
   selectSource(file,cx){this.patchPrefs(this.contextKey(),{file});this.detail=null;this.openMenu=null;this.others=false;cx.notify();}
   toggleStar(task,cx){const stars=new Set(this.sourcePrefs().stars||[]);stars.has(task.name)?stars.delete(task.name):stars.add(task.name);this.patchPrefs(sourceIdentity(this.context,this.source()),{stars:[...stars]});cx.notify();}
-  formKey(task){return taskKey(this.context,this.source(),task);}
+  formKey(task){return taskKey(this.context,this.sourceOf(task),task);}
   showDetail(task,cx) {
     if(this.detail?.name===task.name){this.detail=null;cx.notify();return;}
     for(const input of Object.values(this.inputs))input.release();this.inputs={};this.detail=task;
@@ -137,11 +207,11 @@ export default class Ciupaga extends View {
     const key=this.formKey(task);return resolveRecord(key,shared(RUNS)?.[key],index||terminals());
   }
   patchRun(key,id,patch) {const all=shared(RUNS)||{};if(all[key]?.id===id)setShared(RUNS,{...all,[key]:{...all[key],...patch}});}
-  start(task,cx) {
+  start(task,cx,ready=false) {
     const current=this.record(task);
     if(['starting','running','cancelling'].includes(current.state))return;
-    if(task.parameters.some(p=>p.required)&&this.detail?.name!==task.name){this.showDetail(task,cx);return;}
-    const source={...this.source()},context=taskContext(this.context,source),key=this.formKey(task),id=uid();
+    if(!ready&&task.parameters.some(p=>p.required)&&this.detail?.name!==task.name){if(this.role==='button')this.openPopup(task.name);else this.showDetail(task,cx);return;}
+    const source={...this.sourceOf(task)},context=taskContext(this.context,source),key=this.formKey(task),id=uid();
     let argv;
     try {
       const saved=shared(FORMS)?.[key]||{};
@@ -159,7 +229,7 @@ export default class Ciupaga extends View {
         this.patchRun(key,id,{phase:'launched',address});
         if(shared(RUNS)?.[key]?.cancel&&address)this.killOnce(id,address);
       } catch(error) {this.patchRun(key,id,{phase:'error',error:String(error.message||error)});}
-      cx.notify();
+      this.finishLaunch();cx.notify();
     });
   }
   cancel(task,cx) {
@@ -204,9 +274,9 @@ export default class Ciupaga extends View {
       });
     }
   }
-  openPopup() {
-    const bounds=this.buttonBounds;
-    openOverlay({mod:'ciupaga',kind:'popup',width:520,height:520,props:{role:'popup',context:this.currentContext()},...(bounds?{at:{x:bounds.x,y:bounds.y+bounds.height+4}}:{})});
+  openPopup(focusTask,focusFile) {
+    const bounds=this.buttonBounds,task=typeof focusTask==='string'?focusTask:undefined,file=typeof focusFile==='string'?focusFile:undefined;
+    openOverlay({mod:'ciupaga',kind:'popup',width:520,height:520,props:{role:'popup',context:this.currentContext(),...(task?{focusTask:task}:{}),...(file?{focusFile:file}:{})},...(bounds?{at:{x:bounds.x,y:bounds.y+bounds.height+4}}:{})});
   }
   present(place,cx) {
     try {
@@ -279,6 +349,9 @@ export default class Ciupaga extends View {
   dismiss(){if(this.options.overlay)closeOverlay(this.options.overlay);}
   menuHandle(){return this.menuFocus;}
   render(cx) {
+    if(this.role==='launch')return launchView(this);
+    if(this.role==='menu')return taskMenu(this,cx);
+    if(this.options.runner)return div().id('ciupaga-runner');
     if(this.role==='button')return launcher(this,cx);
     if(this.role==='output')return outputView(this,cx);
     return render(this,cx);
