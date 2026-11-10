@@ -4,18 +4,25 @@ export function normalizePeek(text,lines){
 }
 // Share the coordinator across visible copies; never retain view contexts here.
 export class PeekCoordinator {
-  constructor(limit=100){this.entries=new Map();this.limit=limit;}
+  constructor(limit=100,store=null){this.entries=new Map();this.limit=limit;this.store=store;}
   read(key,{lines,finished=false},loader,now=Date.now()){
     if(!lines)return Promise.resolve({text:''});
     let entry=this.entries.get(key);
     if(entry?.promise)return entry.promise.then(()=>this.snapshot(entry,lines));
+    const external=this.store?.get(key);
+    if(external){
+      if(external.pendingUntil>now)return Promise.resolve(this.snapshot(external,lines));
+      entry={...external};this.entries.set(key,entry);
+    }
     if(entry&&entry.lines>=lines&&((entry.finished&&finished)||now-entry.at<1000))return Promise.resolve(this.snapshot(entry,lines));
     if(!entry){entry={};this.entries.set(key,entry);}
     entry.at=now;entry.lines=lines;
+    this.store?.set(key,{...entry,pendingUntil:now+10000});
     // Invoke loader synchronously to reserve a single pending request before returning.
     let pending;try{pending=loader();}catch(error){pending=Promise.reject(error);}
-    entry.promise=Promise.resolve(pending).then(raw=>{entry.raw=raw;entry.unavailable=false;entry.finished=finished;},()=>{entry.unavailable=true;entry.finished=false;}).finally(()=>{
+    entry.promise=Promise.resolve(pending).then(raw=>{entry.raw=normalizePeek(raw,50);entry.unavailable=false;entry.finished=finished;},()=>{entry.unavailable=true;entry.finished=false;}).finally(()=>{
       entry.promise=null;
+      this.store?.set(key,{raw:entry.raw||'',at:entry.at,lines:entry.lines,finished:entry.finished||false,unavailable:entry.unavailable,pendingUntil:0});
       for(const [old,value] of this.entries){if(this.entries.size<=this.limit)break;if(!value.promise)this.entries.delete(old);}
     }).then(()=>this.snapshot(entry,lines));
     return entry.promise;

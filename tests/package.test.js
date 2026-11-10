@@ -7,6 +7,8 @@ test('public package has required artifacts and excludes runtime state and gener
   const result=spawnSync(process.execPath,['scripts/package.mjs'],{encoding:'utf8'});
   assert.equal(result.status,0,result.stderr);
   const root='dist/ciupaga';
+  for(const name of ['actions.js','output.js'])await readFile(root+'/mods/ciupaga/'+name);
+  await readFile(root+'/scripts/toolbar.mjs');
   const files=await readdir(root,{recursive:true});
   for(const file of ['README.md','RECIPE.md','preview.png','LICENSE','docs/images/tasks.png','docs/images/arguments.png','scripts/install.mjs','mods/ciupaga/main.js','mods/ciupaga/cache.js','mods/ciupaga/typography.js','mods/ciupaga/icons/square-terminal.svg','mods/ciupaga/icons/loader-circle.svg'])assert.ok(files.some(path=>path.replace(/\\/g,'/')===file),file);
   assert.ok(!files.some(path=>/shared\.json|gpui-kit\.d\.ts|jsconfig|\.superpowers|node_modules|\.ciupaga-install/.test(path)));

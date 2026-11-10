@@ -31,3 +31,12 @@ test('peek bounds retained runs while preserving pending reads',async()=>{
   for(const key of ['a','b','c'])await c.read(key,{lines:1,finished:true},async()=>key,0);
   assert.equal(c.entries.size,2);assert.equal(c.entries.has('a'),false);
 });
+test('separate toolbar runtimes share pending leases and completed output',async()=>{
+  const state=new Map(),store={get:key=>state.get(key),set:(key,value)=>state.set(key,value)};
+  const a=new PeekCoordinator(100,store),b=new PeekCoordinator(100,store);let calls=0,release;
+  const load=()=>{calls++;return new Promise(resolve=>{release=resolve})};
+  const first=a.read('shared',{lines:1},load,100);
+  const second=b.read('shared',{lines:1},load,100);assert.equal(calls,1);await second;
+  release('shared output');await first;
+  assert.equal((await b.read('shared',{lines:1},load,200)).text,'shared output');assert.equal(calls,1);
+});

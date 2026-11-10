@@ -18,6 +18,10 @@ export function consoleDestination(place,origin={}){
   if(place==='background')return null;
   return {place:place==='tab'||!origin.pane?'tab':place,space:origin.space||null,tab:origin.tab||null,pane:origin.pane||null};
 }
+export function historyArgv(address,platform){
+  if(platform==='windows')return ['powershell.exe','-NoLogo','-NoProfile','-NoExit','-Command',`& hc read '${String(address).replace(/'/g,"''")}' --lines 10000`];
+  return ['sh','-c','hc read "$1" --lines 10000; exec "${SHELL:-/bin/sh}"','ciupaga-output',address];
+}
 export function contextFrom(props,focus,spaces) {
   if(props.context?.folder)return props.context;
   const space=spaces.find(s=>s.id===focus?.space)||spaces.find(s=>s.active);

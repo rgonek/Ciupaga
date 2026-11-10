@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {runState,latestRun,launchArgs,contextFrom,findNode,viewAction,resolveRecord,reserveRun,terminalIndex,consoleDestination} from '../mods/ciupaga/runtime.js';
+import {runState,latestRun,launchArgs,contextFrom,findNode,viewAction,resolveRecord,reserveRun,terminalIndex,consoleDestination,historyArgv} from '../mods/ciupaga/runtime.js';
 import {sourceKey,taskContext,taskArgv} from '../mods/ciupaga/model.js';
 
 test('automatic console retains the original destination and falls back to its space tab',()=>{
@@ -10,6 +10,12 @@ test('automatic console retains the original destination and falls back to its s
   assert.deepEqual(consoleDestination('right',{space:'s1'}),{place:'tab',space:'s1',tab:null,pane:null});
   assert.equal(consoleDestination('background',origin),null);
   assert.equal(consoleDestination('tab',origin).space,'s2');
+});
+test('finished console keeps an ordinary shell alive and treats terminal address literally',()=>{
+  const windows=historyArgv('t1', 'windows');
+  assert.ok(windows.includes('-NoExit'));assert.equal(windows.at(-1),"& hc read 't1' --lines 10000");
+  const unix=historyArgv('remote/t1;echo bad','linux');
+  assert.equal(unix.at(-1),'remote/t1;echo bad');assert.match(unix[2],/exec/);assert.match(unix[2],/"\$1"/);
 });
 
 test('terminal feedback distinguishes success, failure, kill and unknown code',()=>{

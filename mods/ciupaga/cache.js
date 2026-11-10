@@ -21,6 +21,7 @@ export class MetadataCache {
 }
 export function sessionServices(){
   const key=Symbol.for('ciupaga.services.v3');
-  const services=globalThis[key]??= {metadata:new MetadataCache(),checks:new Set(),cancellations:new Map(),opening:new Set()};
+  const services=globalThis[key]??= {metadata:new MetadataCache(),checks:new Set(),cancellations:new Map(),opening:new Map()};
+  if(!(services.opening instanceof Map))services.opening=new Map();
   services.peek??=new PeekCoordinator();return services;
 }

@@ -3,7 +3,7 @@ import {InputState} from 'gpui-base';
 import {focused,spaces,terminals,panes,theme,window,props,shared,setShared,exec,hc,readTextFile,run,layout,openOverlay,closeOverlay,nextCommand,notify} from 'herdr';
 import {discover} from './discovery.js';
 import {sourceKey,sourceIdentity,taskContext,taskKey,taskArgv,platformArgv,platformFromUname,collectArguments,migrateKeys,quickLaunchCatalog,quickLaunchPick,argumentsReady} from './model.js';
-import {contextFrom,launchArgs,reserveRun,resolveRecord,viewAction,consoleDestination} from './runtime.js';
+import {contextFrom,launchArgs,reserveRun,resolveRecord,viewAction,consoleDestination,historyArgv} from './runtime.js';
 import {render,launcher,outputView,launchView,taskMenu,uiMetrics} from './ui.js';
 import {cacheKey,metadataContext,sessionServices} from './cache.js';
 import {MANUAL_FILE,manualActionsFor,actionSettings,actionIdentity,manualArgv,manualContext,validateManualAction,launcherPreferenceKey} from './actions.js';
@@ -17,6 +17,11 @@ export default class Ciupaga extends View {
     this.options={...(props()||{}),...(initial||{})};this.role=this.options.role||'popup';
     if(!shared('ciupaga.v2.keysMigrated')){for(const key of [PREFS,RUNS,FORMS])setShared(key,migrateKeys(shared(key)||{}));setShared('ciupaga.v2.keysMigrated',true);}
     this.context=null;this.discoveredSources=[];this.loading=false;this.message='';this.openMenu=null;this.detail=null;this.others=false;this.generation=0;this.inputs={};this.editorInputs={};this.services=sessionServices();
+    this.services.peek.store={get:key=>shared('ciupaga.v1.peeks')?.[key],set:(key,value)=>{
+      const all={...(shared('ciupaga.v1.peeks')||{}),[key]:value};
+      const keys=Object.keys(all).sort((a,b)=>all[b].at-all[a].at);
+      setShared('ciupaga.v1.peeks',Object.fromEntries(keys.slice(0,100).map(k=>[k,all[k]])));
+    }};
     if(this.role==='output')this.context=this.options.context||this.currentContext();
     this.search=InputState.new({placeholder:'Find a task…'});
     this.search.on('change',(_e,cx)=>cx.notify());
@@ -105,10 +110,10 @@ export default class Ciupaga extends View {
         return {context,sources,platform,fingerprints:sources.fingerprints,packages:sources.packages};
         },Date.now(),force);
         if(shared(CACHE)?.[key]?.checkedAt!==value.checkedAt){const stored={...(shared(CACHE)||{}),[key]:{context:value.context,sources:value.sources,platform:value.platform,packages:value.packages,checkedAt:value.checkedAt}};const keys=Object.keys(stored).sort((a,b)=>stored[b].checkedAt-stored[a].checkedAt);setShared(CACHE,Object.fromEntries(keys.slice(0,12).map(k=>[k,stored[k]])));}
-        if(generation!==this.generation)return;
+        if(this.closed||generation!==this.generation)return;
         this.applyMetadata(value);this.seenCheckedAt=value.checkedAt;this.revealFocus(cx);this.maybeLaunch(cx);
       } catch(error) {if(generation===this.generation)this.message=String(error.message||error);}
-      if(generation===this.generation){this.loading=false;cx.notify();}
+      if(!this.closed&&generation===this.generation){this.loading=false;cx.notify();}
     });
   }
   needsTasks(){return this.role==='output'?false:this.role!=='button'||this.launcherMode();}
@@ -136,7 +141,7 @@ export default class Ciupaga extends View {
   editManual(id,cx){
     for(const input of Object.values(this.editorInputs))input.release();
     const action=(this.prefs().manualActions||[]).find(a=>a.id===id);
-    this.editor={...(action||{id:uid(),scope:'space',shell:(this.platformName||window().platform)==='windows'?'powershell':'sh'}),space:action?.space||this.context?.space,machine:action?.machine||this.context?.machine||null};
+    this.editor={...(action||{id:uid(),scope:'space',shell:(this.platformName||window().platform)==='windows'?'powershell':'sh'}),space:this.context?.space,machine:this.context?.machine||null};
     this.editorInputs={};
     for(const name of ['name','description','command','cwd','peekLines']){const input=InputState.new({value:name==='peekLines'?String(action?.peekLines??1):action?.[name]||'',placeholder:({name:'Action name',description:'Optional description',command:'Command interpreted by the selected shell',cwd:'Active space folder',peekLines:'0–50'})[name]});input.on('change',(_e,cx)=>cx.notify());this.editorInputs[name]=input;}
     this.message='';cx.notify();
@@ -245,13 +250,19 @@ export default class Ciupaga extends View {
   record(task,index) {
     const key=this.formKey(task);return resolveRecord(key,shared(RUNS)?.[key],index||terminals());
   }
+  peekSnapshot(task){
+    const record=this.record(task),terminal=record.terminal;if(!terminal)return null;
+    const key=JSON.stringify([record.entry?.id||terminal.labels?.['ciupaga.run'],terminal.address]);
+    const saved=this.services.peek.store?.get(key)||this.services.peek.entries.get(key);
+    return saved?this.services.peek.snapshot(saved,this.settingsFor(task).peekLines):null;
+  }
   peek(task,cx){
     const lines=this.settingsFor(task).peekLines,record=this.record(task),terminal=record.terminal;
     if(!lines||!terminal)return null;
     const key=JSON.stringify([record.entry?.id||terminal.labels?.['ciupaga.run'],terminal.address]);
-    const saved=this.services.peek.entries.get(key),snapshot=saved?this.services.peek.snapshot(saved,lines):null;
+    const saved=this.services.peek.store?.get(key)||this.services.peek.entries.get(key),snapshot=saved?this.services.peek.snapshot(saved,lines):null;
     // render only registers visible rows; a task performs IO after render returns.
-    (this.peekRequests??=new Map()).set(key,{lines,terminal,at:Date.now()});
+    (this.peekRequests??=new Map()).set(key,{task,terminal,at:Date.now()});
     return snapshot;
   }
   refreshPeeks(cx){
@@ -260,7 +271,9 @@ export default class Ciupaga extends View {
     if((this.role==='pane'||this.role==='tab')&&!panes().some(p=>p.mod==='ciupaga'&&p.tab===focus?.tab))return;
     for(const [key,request] of this.peekRequests||[]){
       if(Date.now()-request.at>1800){this.peekRequests.delete(key);continue;}
-      const {lines,terminal}=request,saved=this.services.peek.entries.get(key),finished=terminal.state!=='live';
+      const lines=this.settingsFor(request.task).peekLines;
+      if(!lines){this.peekRequests.delete(key);continue;}
+      const {terminal}=request,saved=this.services.peek.entries.get(key),finished=terminal.state!=='live';
       if(saved?.promise||saved?.finished&&saved.lines>=lines)continue;
       cx.spawn(async cx=>{
         await this.services.peek.read(key,{lines,finished},async()=>{
@@ -285,6 +298,7 @@ export default class Ciupaga extends View {
       const args=collectArguments(task.parameters,{...saved,...(saved.flags||{})},saved.$extra||'');
       const space=spaces().find(s=>s.id===this.context?.space);
       context=source.kind==='manual'?manualContext(this.context,space,task):taskContext(this.context,source);
+      context.platform=this.platformName||(!context.machine?window().platform:null);
       argv=source.kind==='manual'?manualArgv(task,this.platformName||(!context.machine?window().platform:null)):platformArgv(taskArgv(source,task,args),this.platformName);
       const reserved=reserveRun(shared(RUNS)||{},key,id);
       Object.assign(reserved[key],{machine:context.machine,context,task:{...task,file:source.file},destination:consoleDestination(this.settingsFor(task).console,{...focused(),space:context.space})});
@@ -300,7 +314,7 @@ export default class Ciupaga extends View {
         if(shared(RUNS)?.[key]?.cancel&&address)this.killOnce(id,address);
         if(!this.closed)this.reconcile(cx);
       } catch(error) {this.patchRun(key,id,{phase:'error',error:String(error.message||error)});}
-      this.finishLaunch();cx.notify();
+      if(!this.closed){this.finishLaunch();cx.notify();}
     });
   }
   cancel(task,cx) {
@@ -316,10 +330,10 @@ export default class Ciupaga extends View {
     for(const [key,entry] of Object.entries(shared(RUNS)||{})) {
       const terminal=live.get(entry.id);
       const output=terminal||entry.final;
-      if(output&&entry.destination&&!entry.consoleDone&&!entry.cancel&&!this.services.autoConsoles?.has(entry.id)){
-        (this.services.autoConsoles??=new Set()).add(entry.id);
-        try{this.console(entry.task,entry.destination.place,cx,{origin:entry.destination,context:entry.context,terminal:output,done:success=>{if(success)this.patchRun(key,entry.id,{consoleDone:true});this.services.autoConsoles.delete(entry.id);}});}
-        catch(error){this.message=error.message;this.patchRun(key,entry.id,{consoleDone:true});this.services.autoConsoles.delete(entry.id);}
+      if(output&&entry.destination&&!entry.consoleDone&&!entry.cancel&&!(entry.consoleLeaseUntil>Date.now())){
+        this.patchRun(key,entry.id,{consoleLeaseUntil:Date.now()+10000});
+        try{this.console(entry.task,entry.destination.place,cx,{origin:entry.destination,context:entry.context,terminal:output,done:success=>{if(success)this.patchRun(key,entry.id,{consoleDone:true});}});}
+        catch(error){this.message=error.message;this.patchRun(key,entry.id,{consoleDone:true});}
       }
       if(entry.final||entry.error)continue;
       if(terminal&&terminal.state!=='live'){this.patchRun(key,entry.id,{phase:'finished',final:terminal});continue;}
@@ -347,7 +361,7 @@ export default class Ciupaga extends View {
           else if(entry.cancel)this.killOnce(entry.id,address);
         } catch(error) {this.patchRun(key,entry.id,{phase:'error',error:String(error.message||error)});}
         finally {this.services.checks.delete(entry.id);}
-        cx.notify();
+        if(!this.closed)cx.notify();
       });
     }
   }
@@ -380,8 +394,8 @@ export default class Ciupaga extends View {
     if(automatic&&place!=='tab'&&!panes().some(p=>p.pane===origin.pane)){place='tab';this.message='Split unavailable; opened console in a new tab';}
     if(place!=='tab'&&!origin?.pane){this.message='Focus a terminal pane before opening a split';cx.notify();return;}
     if(terminal.state!=='live'){this.openOutput(task,terminal,place,cx,{...automatic,origin,context});return;}
-    if(this.services.opening.has(terminal.address))return;
-    this.services.opening.add(terminal.address);
+    if(this.services.opening.get(terminal.address)>Date.now())return;
+    this.services.opening.set(terminal.address,Date.now()+10000);
     // terminal.keep uses the selected pane; select the captured destination synchronously.
     if(origin.space)run('space.select',{id:origin.space});
     if(place!=='tab'){if(origin.tab)run('tab.select',{id:origin.tab});run('pane.focus',{pane:origin.pane});}
@@ -404,14 +418,14 @@ export default class Ciupaga extends View {
   }
   consolePane(address){const all=panes(),direct=all.find(p=>p.terminal===address),viewer=shared(CONSOLES)?.[address];return direct||all.find(p=>p.pane===viewer?.pane&&p.terminal===viewer?.terminal)||null;}
   openOutput(task,terminal,place,cx,automatic) {
-    if(this.services.opening.has(terminal.address))return;
+    if(this.services.opening.get(terminal.address)>Date.now())return;
     const origin=automatic?.origin||focused(),context=automatic?.context||this.context,before=new Set(panes().map(p=>p.pane)),name=`Ciupaga ${uid()}`;
     const target=context?.machine?terminal.address.split('/').at(-1):terminal.address;
-    const argv=['hc','read',target,'--lines','10000'];
+    const argv=historyArgv(target,context.platform||this.platformName||window().platform);
     if(place==='tab')run('tab.new',{space:context?.space,folder:terminal.cwd||context?.folder,name,argv});
     else if(origin?.pane)run('pane.split',{argv,pane:origin.pane,direction:place==='right'||place==='left'?'right':'down'});
     else {notify({title:'Ciupaga',body:'Focus a terminal pane before opening a split'});return;}
-    this.services.opening.add(terminal.address);
+    this.services.opening.set(terminal.address,Date.now()+10000);
     cx.spawn(async cx=>{
       try {for(let attempt=0;attempt<50;attempt++) {
         const tab=place==='tab'?spaces().flatMap(s=>s.tabs).find(t=>t.name===name):null;

@@ -102,6 +102,39 @@ be available on the machine; Ciupaga does not invoke Corepack automatically.
 
 ## Using Ciupaga
 
+### Quick run and custom actions
+
+Enable **Quick run** in the footer to turn the launcher into a split button.
+The main button runs the selected action (or cancels it while running). The
+arrow lists all custom actions available in this space and starred tasks from
+every discovered source. It also offers **Full view** and **Add action**. With
+no quick actions, the main button opens the full view. Selection is remembered
+per space; the full view still exposes unstarred project tasks.
+
+**Add** creates a custom action for **This space** or **Global**. Enter a name
+and command, choose its shell, and optionally override its working folder.
+Custom commands use the selected shell's syntax, including pipes and variables;
+the shell must exist on the target machine. PowerShell and CMD are supported on
+Windows, sh and bash on Unix. Global actions run on the active space's machine.
+Without a folder override, custom actions use the space's configured folder.
+Use **Edit action** in a custom action's details to edit or delete it.
+
+Every action, including those discovered from project files, has settings in
+its details: a bundled **Icon**, **Terminal** placement (background, new tab,
+left or right), and **Peek lines** (0 disables output; 1–50 shows the tail).
+Defaults are background execution and one last nonempty line. Peek appears in
+the quick list and full view, supports native text selection/copy, and retains
+the last output after completion. Visible peeks refresh at most once per second;
+completed output is read once more and then cached. Missing core history is
+reported as unavailable without changing the task's result.
+
+Automatic terminal placement captures the destination at launch. If its split
+pane is gone when the task starts, Ciupaga falls back to a tab in the original
+space. These preferences do not edit your task files. Discovered task arguments
+keep their existing literal-token behavior.
+
+### Project tasks and consoles
+
 - Click **Run** to start a task in the background. Required declared
   parameters open the argument form first. Click the ellipsis or task name
   to edit optional parameters and extra arguments.
@@ -122,7 +155,7 @@ be available on the machine; Ciupaga does not invoke Corepack automatically.
   **Failed** with the runner's exit code, **Cancelled**, and an unavailable
   exit code. **Cancel** ends that task's terminal and children through core.
 - The terminal icon opens one placement menu: **new tab**, **beside**,
-  **above** or **below**. If already shown, focus it or hide it while keeping
+  **left**, **above** or **below**. If already shown, focus it or hide it while keeping
   the process running. Closing a native terminal tab/pane normally ends its
   task; use **Hide console** to keep it running.
 - Finished tasks open an ordinary native terminal in a tab, beside, above
@@ -166,6 +199,19 @@ the containing stack. IDs are yours to choose. If several sidebar copies
 exist, the first in the layout tree is used. The installer does not alter
 your layout, tab bar, key bindings or other mods. Clone shipped layouts
 before changing their structure.
+
+If your personal tab-bar mod already contains the Ciupaga launcher, you can
+replace that button with Ciupaga's actual retained launcher view:
+
+```sh
+node scripts/install.mjs --update --update-tabs my-personal-tabs
+```
+
+This opt-in integration backs up that mod's `main.js`, preserves adjacent
+controls, and copies Ciupaga's modules into its `ciupaga/` subfolder. Repeat
+the same command on updates to refresh both copies. Unknown launcher structures
+are refused. Use it only for your personal mod, since Herdr replaces shipped
+mods on startup. The installer does not switch layouts.
 
 Optional key bindings use Herdr's existing `keys.json` format:
 
