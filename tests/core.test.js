@@ -40,7 +40,7 @@ test('the tab bar runs the pinned task, or the first starred task when the pin i
   const sources=[{file:'Justfile',tasks:[{name:'build'},{name:'test'}]},{file:'package.json',tasks:[{name:'dev'},{name:'build'}]}];
   const stars=source=>source.file==='Justfile'?['test']:source.file==='package.json'?['dev']:[];
   assert.deepEqual(quickLaunchCatalog(sources,stars).map(task=>[task.file,task.name]),[['Justfile','test'],['package.json','dev']]);
-  assert.deepEqual(quickLaunchCatalog(sources,()=>[]).map(task=>[task.file,task.name]),[['Justfile','build'],['Justfile','test'],['package.json','dev'],['package.json','build']]);
+  assert.deepEqual(quickLaunchCatalog(sources,()=>[]),[]);
   assert.equal(quickLaunchPick(quickLaunchCatalog(sources,stars),{file:'package.json',task:'dev'}).file,'package.json');
   assert.equal(quickLaunchPick(quickLaunchCatalog(sources,stars),{file:'missing',task:'nope'}).name,'test');
   assert.equal(argumentsReady({parameters:[]},{}),true);

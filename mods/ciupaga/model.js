@@ -150,10 +150,9 @@ export function quickLaunchTask(tasks=[],stars=[],pinned) {
   const choices=quickLaunchTasks(tasks,stars);
   return choices.find(t=>t.name===pinned)||choices[0]||null;
 }
-// Favorites from every task file. With none, every task from every file.
+// Manual actions are always available; discovered actions must be starred.
 export function quickLaunchCatalog(sources=[],starsFor=()=>[]) {
-  const starred=sources.flatMap(source=>(source.tasks||[]).filter(task=>starsFor(source).includes(task.name)).map(task=>({...task,file:source.file})));
-  return starred.length?starred:sources.flatMap(source=>(source.tasks||[]).map(task=>({...task,file:source.file})));
+  return sources.flatMap(source=>(source.tasks||[]).filter(task=>source.kind==='manual'||starsFor(source).includes(task.name)).map(task=>({...task,file:source.file})));
 }
 export function quickLaunchPick(choices=[],pin={}) {
   return choices.find(task=>task.file===pin.file&&task.name===pin.task)||choices[0]||null;

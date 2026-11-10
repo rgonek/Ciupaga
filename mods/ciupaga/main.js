@@ -6,6 +6,7 @@ import {sourceKey,sourceIdentity,taskContext,taskKey,taskArgv,platformArgv,platf
 import {contextFrom,launchArgs,reserveRun,resolveRecord,viewAction} from './runtime.js';
 import {render,launcher,outputView,launchView,taskMenu,uiMetrics} from './ui.js';
 import {cacheKey,metadataContext,sessionServices} from './cache.js';
+import {MANUAL_FILE,manualActionsFor,actionSettings,actionIdentity,manualArgv,manualContext,validateManualAction,launcherPreferenceKey} from './actions.js';
 
 const PREFS='ciupaga.v1.preferences',RUNS='ciupaga.v1.runs',FORMS='ciupaga.v1.forms',CACHE='ciupaga.v2.metadata',CONSOLES='ciupaga.v2.consoles',LAUNCH='ciupaga.v1.launch',LAUNCHER='ciupaga.v1.launcher';
 const folderKey=folder=>String(folder||'').replace(/\\/g,'/').replace(/\/+$/,'').toLowerCase();
@@ -15,7 +16,7 @@ export default class Ciupaga extends View {
   init(initial,cx) {
     this.options=props()||initial||{};this.role=this.options.role||'popup';
     if(!shared('ciupaga.v2.keysMigrated')){for(const key of [PREFS,RUNS,FORMS])setShared(key,migrateKeys(shared(key)||{}));setShared('ciupaga.v2.keysMigrated',true);}
-    this.context=null;this.sources=[];this.loading=false;this.message='';this.openMenu=null;this.detail=null;this.others=false;this.generation=0;this.inputs={};this.services=sessionServices();
+    this.context=null;this.discoveredSources=[];this.loading=false;this.message='';this.openMenu=null;this.detail=null;this.others=false;this.generation=0;this.inputs={};this.editorInputs={};this.services=sessionServices();
     if(this.role==='output')this.context=this.options.context||this.currentContext();
     this.search=InputState.new({placeholder:'Find a task…'});
     this.search.on('change',(_e,cx)=>cx.notify());
@@ -50,13 +51,13 @@ export default class Ciupaga extends View {
       cx.notify();
     }});
   }
-  close() {this.search.release();for(const input of Object.values(this.inputs))input.release();}
+  close() {this.closed=true;this.search.release();for(const input of [...Object.values(this.inputs),...Object.values(this.editorInputs)])input.release();}
   currentContext(){return contextFrom(this.options,focused(),spaces());}
   activate(cx) {
     const context=this.currentContext();
     if(JSON.stringify(context)===JSON.stringify(this.requestContext))return;
     this.requestContext=context;
-    this.context=context;this.sources=[];this.detail=null;this.loading=false;this.others=false;this.generation++;
+    this.context=context;this.discoveredSources=[];this.detail=null;this.loading=false;this.others=false;this.generation++;
     const cached=this.services.metadata.peek(cacheKey(context))||shared(CACHE)?.[cacheKey(context)];
     if(cached){this.seenCheckedAt=cached.checkedAt;this.services.metadata.seed(cacheKey(context),cached);this.applyMetadata(cached);}
     this.reload(cx);
@@ -71,7 +72,7 @@ export default class Ciupaga extends View {
   }
   applyMetadata(value) {
     if(this.context?.folder!==value.context.folder){this.detail=null;this.others=false;}
-    this.context=metadataContext(this.requestContext,value.context);this.sources=value.sources;this.platformName=value.platform;
+    this.context=metadataContext(this.requestContext,value.context);this.discoveredSources=value.sources;this.platformName=value.platform;
     if(this.detail){const fresh=this.source()?.tasks.find(t=>t.name===this.detail.name);if(!fresh||JSON.stringify(fresh.parameters)!==JSON.stringify(this.detail.parameters))this.detail=null;else this.detail=fresh;}
   }
   reload(cx,force=false) {
@@ -116,6 +117,38 @@ export default class Ciupaga extends View {
     this.seenCheckedAt=cached.checkedAt;this.applyMetadata(cached);
   }
   prefs(){return shared(PREFS)||{};}
+  get sources(){
+    const tasks=manualActionsFor(this.prefs().manualActions||[],this.context||{}).map(action=>({...action,file:MANUAL_FILE,parameters:[]}));
+    return [...(tasks.length?[{kind:'manual',file:MANUAL_FILE,label:'Custom actions',tasks}]:[]),...(this.discoveredSources||[])];
+  }
+  settingsFor(task){const saved=task.id?(this.prefs().manualActions||[]).find(a=>a.id===task.id)||task:this.prefs().actionSettings?.[this.formKey(task)]||{};try{return actionSettings(saved);}catch{return actionSettings({});}}
+  setActionSettings(task,patch,cx){
+    const value={...this.settingsFor(task),...patch};
+    try{actionSettings(value);
+      if(task.id){setShared(PREFS,{...this.prefs(),manualActions:(this.prefs().manualActions||[]).map(a=>a.id===task.id?{...a,...value}:a)});}
+      else setShared(PREFS,{...this.prefs(),actionSettings:{...(this.prefs().actionSettings||{}),[this.formKey(task)]:value}});
+      this.message='';
+    }catch(error){this.message=error.message;}
+    cx.notify();
+  }
+  editManual(id,cx){
+    for(const input of Object.values(this.editorInputs))input.release();
+    const action=(this.prefs().manualActions||[]).find(a=>a.id===id);
+    this.editor={...(action||{id:uid(),scope:'space',shell:(this.platformName||window().platform)==='windows'?'powershell':'sh'}),space:action?.space||this.context?.space,machine:action?.machine||this.context?.machine||null};
+    this.editorInputs={};
+    for(const name of ['name','description','command','cwd']){const input=InputState.new({value:action?.[name]||'',placeholder:({name:'Action name',description:'Optional description',command:'Command interpreted by the selected shell',cwd:'Active space folder'})[name]});input.on('change',(_e,cx)=>cx.notify());this.editorInputs[name]=input;}
+    this.message='';cx.notify();
+  }
+  closeEditor(cx){for(const input of Object.values(this.editorInputs))input.release();this.editorInputs={};this.editor=null;cx.notify();}
+  saveManual(cx){
+    try{
+      const action=validateManualAction({...this.editor,...Object.fromEntries(Object.entries(this.editorInputs).map(([k,input])=>[k,input.value()]))});
+      const actions=this.prefs().manualActions||[],exists=actions.some(a=>a.id===action.id);
+      setShared(PREFS,{...this.prefs(),manualActions:exists?actions.map(a=>a.id===action.id?action:a):[...actions,action]});
+      this.patchPrefs(this.contextKey(),{file:MANUAL_FILE});this.detail=null;this.message='';this.closeEditor(cx);
+    }catch(error){this.message=error.message;cx.notify();}
+  }
+  deleteManual(id,cx){setShared(PREFS,{...this.prefs(),manualActions:(this.prefs().manualActions||[]).filter(a=>a.id!==id)});this.detail=null;this.closeEditor(cx);}
   launcherMode(){return this.prefs().launcher?.quick===true;}
   setLauncher(quick,cx){
     this.patchPrefs('launcher',{quick:Boolean(quick)});
@@ -124,7 +157,8 @@ export default class Ciupaga extends View {
   }
   launcherChoices(){return quickLaunchCatalog(this.sources||[],source=>this.prefs()[sourceIdentity(this.context,source)]?.stars||[]);}
   launcherTask(){
-    const pin=this.prefs().launcher||{},choices=this.launcherChoices();
+    const pin=this.prefs()[launcherPreferenceKey(this.context)]||this.prefs().launcher||{},choices=this.launcherChoices();
+    if(pin.id)return choices.find(task=>task.id===pin.id)||choices[0]||null;
     if(pin.file||pin.task)return quickLaunchPick(choices,{file:pin.file,task:pin.task});
     for(const source of this.sources||[]){const name=this.prefs()[sourceIdentity(this.context,source)]?.launcher;const found=typeof name==='string'&&choices.find(task=>task.file===source.file&&task.name===name);if(found)return found;}
     return choices[0]||null;
@@ -132,7 +166,7 @@ export default class Ciupaga extends View {
   sourceOf(task){return (task?.file&&this.sources.find(source=>source.file===task.file))||this.source();}
   chooseLauncher(task,cx){
     const source=this.sourceOf(task);if(!source)return;
-    this.patchPrefs('launcher',{file:source.file,task:task.name});
+    this.patchPrefs(launcherPreferenceKey(this.context),{file:source.file,task:task.name,id:task.id||null});
     this.openMenu=null;this.launchQuick({...task,file:source.file},cx);
   }
   launchQuick(task,cx){
@@ -144,16 +178,16 @@ export default class Ciupaga extends View {
   }
   // The tab bar button lives in another mod. It reads this snapshot and posts a launch request.
   publishLauncher(){
-    if(this.role==='output'||!this.source())return;
+    if(this.role==='output'||!this.context)return;
     const task=this.launcherTask(),record=task?this.record(task):null;
-    const snapshot={folder:this.context?.folder||'',quick:this.launcherMode(),task:task?.name||null,file:task?.file||null,state:record?.state||'idle',choices:this.launcherChoices().map(item=>({name:item.name,file:item.file,description:item.description||''}))};
+    const snapshot={folder:this.context?.folder||'',space:this.context?.space,machine:this.context?.machine||null,quick:this.launcherMode(),task:task?.name||null,id:task?.id||null,icon:task?this.settingsFor(task).icon:'ciupaga',file:task?.file||null,state:record?.state||'idle',choices:this.launcherChoices().map(item=>({id:item.id||null,name:item.name,file:item.file,icon:this.settingsFor(item).icon,description:item.description||''}))};
     const prev=shared(LAUNCHER);
-    if(prev&&prev.folder===snapshot.folder&&prev.quick===snapshot.quick&&prev.task===snapshot.task&&prev.file===snapshot.file&&prev.state===snapshot.state&&JSON.stringify(prev.choices)===JSON.stringify(snapshot.choices))return;
+    if(JSON.stringify(prev)===JSON.stringify(snapshot))return;
     setShared(LAUNCHER,snapshot);
   }
   maybeLaunch(cx){
     if(this.role!=='launch'||this.launched)return;
-    const task=this.launcherChoices().find(item=>item.name===this.options.task&&(!this.options.file||item.file===this.options.file));
+    const task=this.launcherChoices().find(item=>this.options.id?item.id===this.options.id:item.name===this.options.task&&(!this.options.file||item.file===this.options.file));
     if(!task)return;
     this.launched=true;this.launchQuick(task,cx);
   }
@@ -164,7 +198,8 @@ export default class Ciupaga extends View {
     if(Date.now()-request.at>5000){setShared(LAUNCH,{...request,claimed:true});return;}
     const folder=folderKey(this.context?.folder),want=folderKey(request.folder);
     if(!folder||(want&&folder!==want))return;
-    const task=this.source()?.tasks.find(item=>item.name===request.task);
+    if(request.space&&request.space!==this.context?.space)return;
+    const task=this.launcherChoices().find(item=>request.id?item.id===request.id:item.name===request.task&&(!request.file||item.file===request.file));
     if(!task)return;
     setShared(LAUNCH,{...request,claimed:true});
     if(request.pin)this.chooseLauncher(task,cx);else this.launchQuick(task,cx);
@@ -183,7 +218,7 @@ export default class Ciupaga extends View {
   patchPrefs(key,patch){setShared(PREFS,{...this.prefs(),[key]:{...this.prefs()[key],...patch}});}
   selectSource(file,cx){this.patchPrefs(this.contextKey(),{file});this.detail=null;this.openMenu=null;this.others=false;cx.notify();}
   toggleStar(task,cx){const stars=new Set(this.sourcePrefs().stars||[]);stars.has(task.name)?stars.delete(task.name):stars.add(task.name);this.patchPrefs(sourceIdentity(this.context,this.source()),{stars:[...stars]});cx.notify();}
-  formKey(task){return taskKey(this.context,this.sourceOf(task),task);}
+  formKey(task){return actionIdentity(this.context,this.sourceOf(task),task);}
   showDetail(task,cx) {
     if(this.detail?.name===task.name){this.detail=null;cx.notify();return;}
     for(const input of Object.values(this.inputs))input.release();this.inputs={};this.detail=task;
