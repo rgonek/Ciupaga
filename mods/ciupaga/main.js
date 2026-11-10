@@ -14,7 +14,7 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
 
 export default class Ciupaga extends View {
   init(initial,cx) {
-    this.options=props()||initial||{};this.role=this.options.role||'popup';
+    this.options={...(props()||{}),...(initial||{})};this.role=this.options.role||'popup';
     if(!shared('ciupaga.v2.keysMigrated')){for(const key of [PREFS,RUNS,FORMS])setShared(key,migrateKeys(shared(key)||{}));setShared('ciupaga.v2.keysMigrated',true);}
     this.context=null;this.discoveredSources=[];this.loading=false;this.message='';this.openMenu=null;this.detail=null;this.others=false;this.generation=0;this.inputs={};this.editorInputs={};this.services=sessionServices();
     if(this.role==='output')this.context=this.options.context||this.currentContext();
@@ -22,11 +22,13 @@ export default class Ciupaga extends View {
     this.search.on('change',(_e,cx)=>cx.notify());
     this.handle=cx.focus_handle();this.menuFocus=cx.focus_handle();
     if(this.needsTasks())this.activate(cx);
-    cx.timer.every(1000,cx=>{this.reconcile(cx);if(this.needsTasks())this.activate(cx);if(this.role==='button'){this.syncLauncher();cx.notify();}});
+    if(this.options.editManual)this.editManual(null,cx);
+    cx.timer.every(1000,cx=>{this.reconcile(cx);if(this.needsTasks())this.activate(cx);this.refreshPeeks(cx);if(this.role==='button'){this.syncLauncher();cx.notify();}});
     if(this.role!=='output')cx.timer.every(200,cx=>{this.consumeLaunch(cx);this.publishLauncher();this.maybeLaunch(cx);});
-    cx.spawn(async cx=>{for(;;){const command=await nextCommand();const name=typeof command==='string'?command:command.name;
+    if(!this.options.embedded)cx.spawn(async cx=>{for(;;){const command=await nextCommand();const name=typeof command==='string'?command:command.name;
       if(name==='focus')this.handle.focus();
       if(name==='open')this.openPopup();
+      if(name==='add')this.editManual(null,cx);
       if(name==='refresh'&&this.role!=='button')this.reload(cx,true);
       if(name==='tab')this.present('tab',cx);
       if(name==='sidebar')this.present('sidebar',cx);
@@ -73,7 +75,7 @@ export default class Ciupaga extends View {
   applyMetadata(value) {
     if(this.context?.folder!==value.context.folder){this.detail=null;this.others=false;}
     this.context=metadataContext(this.requestContext,value.context);this.discoveredSources=value.sources;this.platformName=value.platform;
-    if(this.detail){const fresh=this.source()?.tasks.find(t=>t.name===this.detail.name);if(!fresh||JSON.stringify(fresh.parameters)!==JSON.stringify(this.detail.parameters))this.detail=null;else this.detail=fresh;}
+    if(this.detail){const fresh=this.source()?.tasks.find(t=>this.detail.id?t.id===this.detail.id:t.name===this.detail.name);if(!fresh||JSON.stringify(fresh.parameters)!==JSON.stringify(this.detail.parameters))this.detail=null;else this.detail=fresh;}
   }
   reload(cx,force=false) {
     if(!this.context?.folder||this.loading)return;
@@ -136,13 +138,13 @@ export default class Ciupaga extends View {
     const action=(this.prefs().manualActions||[]).find(a=>a.id===id);
     this.editor={...(action||{id:uid(),scope:'space',shell:(this.platformName||window().platform)==='windows'?'powershell':'sh'}),space:action?.space||this.context?.space,machine:action?.machine||this.context?.machine||null};
     this.editorInputs={};
-    for(const name of ['name','description','command','cwd']){const input=InputState.new({value:action?.[name]||'',placeholder:({name:'Action name',description:'Optional description',command:'Command interpreted by the selected shell',cwd:'Active space folder'})[name]});input.on('change',(_e,cx)=>cx.notify());this.editorInputs[name]=input;}
+    for(const name of ['name','description','command','cwd','peekLines']){const input=InputState.new({value:name==='peekLines'?String(action?.peekLines??1):action?.[name]||'',placeholder:({name:'Action name',description:'Optional description',command:'Command interpreted by the selected shell',cwd:'Active space folder',peekLines:'0–50'})[name]});input.on('change',(_e,cx)=>cx.notify());this.editorInputs[name]=input;}
     this.message='';cx.notify();
   }
   closeEditor(cx){for(const input of Object.values(this.editorInputs))input.release();this.editorInputs={};this.editor=null;cx.notify();}
   saveManual(cx){
     try{
-      const action=validateManualAction({...this.editor,...Object.fromEntries(Object.entries(this.editorInputs).map(([k,input])=>[k,input.value()]))});
+      const action=validateManualAction({...this.editor,...Object.fromEntries(Object.entries(this.editorInputs).map(([k,input])=>[k,k==='peekLines'?Number(input.value()):input.value()]))});
       const actions=this.prefs().manualActions||[],exists=actions.some(a=>a.id===action.id);
       setShared(PREFS,{...this.prefs(),manualActions:exists?actions.map(a=>a.id===action.id?action:a):[...actions,action]});
       this.patchPrefs(this.contextKey(),{file:MANUAL_FILE});this.detail=null;this.message='';this.closeEditor(cx);
@@ -220,7 +222,7 @@ export default class Ciupaga extends View {
   toggleStar(task,cx){const stars=new Set(this.sourcePrefs().stars||[]);stars.has(task.name)?stars.delete(task.name):stars.add(task.name);this.patchPrefs(sourceIdentity(this.context,this.source()),{stars:[...stars]});cx.notify();}
   formKey(task){return actionIdentity(this.context,this.sourceOf(task),task);}
   showDetail(task,cx) {
-    if(this.detail?.name===task.name){this.detail=null;cx.notify();return;}
+    if(this.detail&&this.formKey(this.detail)===this.formKey(task)){this.detail=null;cx.notify();return;}
     for(const input of Object.values(this.inputs))input.release();this.inputs={};this.detail=task;
     if(!(this.sourcePrefs().stars||[]).includes(task.name))this.others=true;
     const key=this.formKey(task),saved=shared(FORMS)?.[key]||{};
@@ -231,6 +233,8 @@ export default class Ciupaga extends View {
       input.on('change',(_e,cx)=>{this.saveForm(key);cx.notify();});
       input.on('submit',(_e,cx)=>this.start(task,cx));this.inputs[p.name]=input;
     }
+    const peek=InputState.new({value:String(this.settingsFor(task).peekLines),placeholder:'0–50'});
+    peek.on('change',(_e,cx)=>{if(/^\d+$/.test(peek.value()))this.setActionSettings(task,{peekLines:Number(peek.value())},cx);});this.inputs.$peek=peek;
     cx.notify();
   }
   saveForm(key=this.detail&&this.formKey(this.detail)) {
@@ -240,6 +244,33 @@ export default class Ciupaga extends View {
   }
   record(task,index) {
     const key=this.formKey(task);return resolveRecord(key,shared(RUNS)?.[key],index||terminals());
+  }
+  peek(task,cx){
+    const lines=this.settingsFor(task).peekLines,record=this.record(task),terminal=record.terminal;
+    if(!lines||!terminal)return null;
+    const key=JSON.stringify([record.entry?.id||terminal.labels?.['ciupaga.run'],terminal.address]);
+    const saved=this.services.peek.entries.get(key),snapshot=saved?this.services.peek.snapshot(saved,lines):null;
+    // render only registers visible rows; a task performs IO after render returns.
+    (this.peekRequests??=new Map()).set(key,{lines,terminal,at:Date.now()});
+    return snapshot;
+  }
+  refreshPeeks(cx){
+    const focus=focused();
+    if(this.role==='button'&&this.openMenu!=='launcher')return;
+    if((this.role==='pane'||this.role==='tab')&&!panes().some(p=>p.mod==='ciupaga'&&p.tab===focus?.tab))return;
+    for(const [key,request] of this.peekRequests||[]){
+      if(Date.now()-request.at>1800){this.peekRequests.delete(key);continue;}
+      const {lines,terminal}=request,saved=this.services.peek.entries.get(key),finished=terminal.state!=='live';
+      if(saved?.promise||saved?.finished&&saved.lines>=lines)continue;
+      cx.spawn(async cx=>{
+        await this.services.peek.read(key,{lines,finished},async()=>{
+        const result=await hc(['read',terminal.address,'--lines',String(Math.max(lines,50))]);
+        if(result.code!==0)throw new Error('Output unavailable');return result.stdout;
+        });
+        if(!this.closed)cx.notify();
+      });
+    }
+    if(this.peekRequests?.size)cx.notify();
   }
   patchRun(key,id,patch) {const all=shared(RUNS)||{};if(all[key]?.id===id)setShared(RUNS,{...all,[key]:{...all[key],...patch}});}
   start(task,cx,ready=false) {
@@ -320,9 +351,9 @@ export default class Ciupaga extends View {
       });
     }
   }
-  openPopup(focusTask,focusFile) {
+  openPopup(focusTask,focusFile,editManual=false) {
     const bounds=this.buttonBounds,task=typeof focusTask==='string'?focusTask:undefined,file=typeof focusFile==='string'?focusFile:undefined;
-    openOverlay({mod:'ciupaga',kind:'popup',width:uiMetrics().px(520),height:uiMetrics().px(520),props:{role:'popup',context:this.currentContext(),...(task?{focusTask:task}:{}),...(file?{focusFile:file}:{})},...(bounds?{at:{x:bounds.x,y:bounds.y+bounds.height+4}}:{})});
+    openOverlay({mod:'ciupaga',kind:'popup',width:uiMetrics().px(520),height:uiMetrics().px(520),props:{role:'popup',context:this.currentContext(),editManual,...(task?{focusTask:task}:{}),...(file?{focusFile:file}:{})},...(bounds?{at:{x:bounds.x,y:bounds.y+bounds.height+4}}:{})});
   }
   present(place,cx) {
     try {
@@ -401,6 +432,7 @@ export default class Ciupaga extends View {
   dismiss(){if(this.options.overlay)closeOverlay(this.options.overlay);}
   menuHandle(){return this.menuFocus;}
   render(cx) {
+    this.peekRequests=new Map();
     if(this.role==='launch')return launchView(this);
     if(this.role==='menu')return taskMenu(this,cx);
     if(this.options.runner)return div().id('ciupaga-runner');
